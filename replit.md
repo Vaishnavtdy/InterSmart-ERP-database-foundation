@@ -46,6 +46,10 @@ lifecycle, including external customers, sales, projects, accounts, PMO, UI,
 UX, development, QA, and HR. Implement each module only when explicitly
 requested. Internal employees are users; external clients are customers.
 
+Project is the central business entity. Future Sales, Accounts, PMO, Project
+Coordinator, UI, UX, Development, QA, Budget, Payments, Tasks, Meetings, Customer
+Feedback, Files, Change Requests, and Notifications connect to Project.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

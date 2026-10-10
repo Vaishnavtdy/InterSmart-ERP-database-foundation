@@ -27,11 +27,12 @@ enum UserStatus {
 }
 
 model Department {
-  id        String         @id @default(uuid()) @db.Uuid
-  code      DepartmentCode @unique
-  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  users     User[]
+  id           String         @id @default(uuid()) @db.Uuid
+  code         DepartmentCode @unique
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  users        User[]
+  projectTeams ProjectTeam[]
 
   @@map("departments")
 }
@@ -61,6 +62,15 @@ model User {
   leadActivities          LeadActivity[]
   createdProposals        Proposal[]
   createdProposalVersions ProposalVersion[]
+
+  salesProjects          Project[]              @relation("ProjectSalesperson")
+  managedProjects        Project[]              @relation("ProjectManager")
+  coordinatedProjects    Project[]              @relation("ProjectCoordinator")
+  projectTeams           ProjectTeam[]
+  projectStatusChanges   ProjectStatusHistory[]
+  projectComments        ProjectComment[]
+  assignedProjectActions ProjectAction[]        @relation("ProjectActionAssignee")
+  createdProjectActions  ProjectAction[]        @relation("ProjectActionCreator")
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -114,6 +124,8 @@ model Customer {
   contacts              CustomerContact[]
   leads                 Lead[]
   proposals             Proposal[]
+
+  projects Project[]
 
   @@index([companyName])
   @@index([status, deletedAt])
@@ -279,6 +291,8 @@ model Proposal {
   versions         ProposalVersion[] @relation("ProposalVersions")
   currentVersion   ProposalVersion?  @relation("ProposalCurrentVersion", fields: [id, currentVersionId], references: [proposalId, id], onDelete: Restrict, onUpdate: NoAction)
 
+  projects Project[]
+
   @@index([leadId])
   @@index([customerId])
   @@index([createdById])
@@ -334,4 +348,224 @@ model ProposalItem {
 
   @@index([proposalVersionId, sortOrder])
   @@map("proposal_items")
+}
+
+enum ProjectStatus {
+  PLANNED
+  ONGOING
+  ON_HOLD
+  COMPLETED
+  TERMINATED
+}
+
+enum ProjectStatusReason {
+  PAYMENT_PENDING
+  NO_CLIENT_RESPONSE
+  OUT_OF_SCOPE
+  CONTENT_PENDING
+  IMAGE_PENDING
+  PAYMENT_GATEWAY_PENDING
+  SMS_PENDING
+  SMTP_PENDING
+  TOO_MANY_CORRECTIONS
+  REPEATED_CORRECTIONS
+  BUDGET_EXCEEDED
+  DATE_EXCEEDED
+  MEETING_PENDING
+  APPROVAL_PENDING
+  OTHER
+}
+
+enum ProjectPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ProjectQualityLevel {
+  STANDARD
+  PREMIUM
+  HIGH
+}
+
+enum ProjectPlatform {
+  WEB
+  MOBILE
+  CMS
+  ECOMMERCE
+  CUSTOM_WEB
+}
+
+enum ProjectRole {
+  PROJECT_MANAGER
+  PROJECT_COORDINATOR
+  UI_TL
+  UI_RESOURCE
+  UX_TL
+  UX_RESOURCE
+  DEV_TL
+  DEV_RESOURCE
+  QA
+  SALES
+  ACCOUNTS
+}
+
+enum ProjectActionType {
+  CLIENT_RESPONSE_REQUIRED
+  PAYMENT_FOLLOW_UP
+  CONTENT_REQUIRED
+  APPROVAL_REQUIRED
+  MEETING_REQUIRED
+  INTERNAL_ACTION
+  OTHER
+}
+
+enum ProjectActionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Project {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  projectCode          String                 @unique @map("project_code") @db.VarChar(32)
+  name                 String                 @db.VarChar(255)
+  customerId           String                 @map("customer_id") @db.Uuid
+  proposalId           String?                @map("proposal_id") @db.Uuid
+  salesPersonId        String                 @map("sales_person_id") @db.Uuid
+  projectManagerId     String?                @map("project_manager_id") @db.Uuid
+  projectCoordinatorId String?                @map("project_coordinator_id") @db.Uuid
+  categoryId           String                 @map("category_id") @db.Uuid
+  qualityLevel         ProjectQualityLevel?   @map("quality_level")
+  platform             ProjectPlatform?
+  pageCount            Int?                   @map("page_count")
+  priority             ProjectPriority        @default(MEDIUM)
+  status               ProjectStatus          @default(PLANNED)
+  startDate            DateTime?              @map("start_date") @db.Timestamptz(6)
+  plannedEndDate       DateTime?              @map("planned_end_date") @db.Timestamptz(6)
+  actualEndDate        DateTime?              @map("actual_end_date") @db.Timestamptz(6)
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt            DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  customer             Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  proposal             Proposal?              @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  salesPerson          User                   @relation("ProjectSalesperson", fields: [salesPersonId], references: [id], onDelete: Restrict)
+  projectManager       User?                  @relation("ProjectManager", fields: [projectManagerId], references: [id], onDelete: SetNull)
+  projectCoordinator   User?                  @relation("ProjectCoordinator", fields: [projectCoordinatorId], references: [id], onDelete: SetNull)
+  category             ProjectCategory        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  team                 ProjectTeam[]
+  statusHistory        ProjectStatusHistory[]
+  comments             ProjectComment[]
+  actions              ProjectAction[]
+
+  @@index([customerId])
+  @@index([proposalId])
+  @@index([salesPersonId])
+  @@index([projectManagerId])
+  @@index([projectCoordinatorId])
+  @@index([categoryId])
+  @@index([status, deletedAt])
+  @@index([priority, deletedAt])
+  @@index([plannedEndDate])
+  @@index([createdAt])
+  @@map("projects")
+}
+
+model ProjectCategory {
+  id          String            @id @default(uuid()) @db.Uuid
+  parentId    String?           @map("parent_id") @db.Uuid
+  name        String            @db.VarChar(100)
+  code        String            @unique @db.VarChar(64)
+  description String?           @db.Text
+  isActive    Boolean           @default(true) @map("is_active")
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  parent      ProjectCategory?  @relation("ProjectCategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children    ProjectCategory[] @relation("ProjectCategoryHierarchy")
+  projects    Project[]
+
+  @@index([parentId, isActive])
+  @@map("project_categories")
+}
+
+model ProjectTeam {
+  id                   String      @id @default(uuid()) @db.Uuid
+  projectId            String      @map("project_id") @db.Uuid
+  userId               String      @map("user_id") @db.Uuid
+  departmentId         String      @map("department_id") @db.Uuid
+  projectRole          ProjectRole @map("project_role")
+  allocationPercentage Decimal?    @map("allocation_percentage") @db.Decimal(5, 2)
+  assignedAt           DateTime    @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  releasedAt           DateTime?   @map("released_at") @db.Timestamptz(6)
+  project              Project     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  user                 User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  department           Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  // Active-assignment uniqueness is maintained by a partial index in migration SQL.
+  @@index([projectId, releasedAt])
+  @@index([userId, releasedAt])
+  @@index([departmentId])
+  @@index([projectRole])
+  @@map("project_teams")
+}
+
+model ProjectStatusHistory {
+  id          String               @id @default(uuid()) @db.Uuid
+  projectId   String               @map("project_id") @db.Uuid
+  fromStatus  ProjectStatus?       @map("from_status")
+  toStatus    ProjectStatus        @map("to_status")
+  reason      ProjectStatusReason?
+  changedById String               @map("changed_by_id") @db.Uuid
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  changedBy   User                 @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  // Append-only history is enforced by a PostgreSQL trigger in migration SQL.
+  @@index([projectId, createdAt])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("project_status_histories")
+}
+
+model ProjectComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  comment   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("project_comments")
+}
+
+model ProjectAction {
+  id           String              @id @default(uuid()) @db.Uuid
+  projectId    String              @map("project_id") @db.Uuid
+  assignedToId String              @map("assigned_to_id") @db.Uuid
+  createdById  String              @map("created_by_id") @db.Uuid
+  actionType   ProjectActionType   @map("action_type")
+  title        String              @db.VarChar(255)
+  description  String?             @db.Text
+  dueDate      DateTime?           @map("due_date") @db.Timestamptz(6)
+  status       ProjectActionStatus @default(PENDING)
+  completedAt  DateTime?           @map("completed_at") @db.Timestamptz(6)
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  assignedTo   User                @relation("ProjectActionAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  createdBy    User                @relation("ProjectActionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([projectId, status])
+  @@index([assignedToId, status, dueDate])
+  @@index([createdById])
+  @@index([status, dueDate])
+  @@index([dueDate])
+  @@map("project_actions")
 }

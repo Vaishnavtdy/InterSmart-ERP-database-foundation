@@ -1,0 +1,739 @@
+You are continuing development of the InterSmart ERP database.
+
+IMPORTANT:
+Steps 1–5 have already been implemented.
+
+Existing modules:
+- Users
+- Departments
+- Employee Profiles
+- Roles
+- Permissions
+- User Roles
+- Role Permissions
+- Customers
+- Customer Contacts
+- Leads
+- Lead Activities
+- Proposals
+- Proposal Versions
+- Proposal Items
+
+DO NOT recreate, replace, or duplicate existing models.
+
+==================================================
+DATABASE STEP 6 — PROJECT MANAGEMENT CORE
+==================================================
+
+Implement the CENTRAL PROJECT module.
+
+The Project is the core business entity of the InterSmart ERP.
+
+Future modules will connect to Project:
+
+- Sales
+- Accounts
+- PMO
+- Project Coordinator
+- UI
+- UX
+- Development
+- QA
+- Budget
+- Payments
+- Tasks
+- Meetings
+- Customer Feedback
+- Files
+- Change Requests
+- Notifications
+
+Design this module as the foundation for those future modules.
+
+==================================================
+MODELS
+==================================================
+
+Create:
+
+1. Project
+2. ProjectCategory
+3. ProjectTeam
+4. ProjectStatusHistory
+5. ProjectComment
+6. ProjectAction
+
+==================================================
+1. PROJECT
+==================================================
+
+Create the Project model.
+
+Fields:
+
+- id UUID primary key
+- projectCode unique
+- name
+- customerId
+- proposalId nullable
+- salesPersonId
+- projectManagerId nullable
+- projectCoordinatorId nullable
+- categoryId
+- qualityLevel nullable
+- platform nullable
+- pageCount nullable
+- priority
+- status
+- startDate nullable
+- plannedEndDate nullable
+- actualEndDate nullable
+- createdAt
+- updatedAt
+- deletedAt nullable
+
+RELATIONSHIPS:
+
+Project
+ ├── Customer
+ ├── Proposal nullable
+ ├── Salesperson
+ ├── Project Manager nullable
+ ├── Project Coordinator nullable
+ ├── Project Category
+ ├── Project Team[]
+ ├── Status History[]
+ ├── Comments[]
+ └── Actions[]
+
+IMPORTANT:
+
+Do NOT put the following fields directly in Project:
+
+- budget
+- usedBudget
+- remainingBudget
+- designerId
+- developerId
+- uxDesignerId
+- qaId
+- holdReason
+- terminationReason
+- progressPercentage
+- completedTasks
+- totalTasks
+
+These will come from dedicated modules/tables.
+
+==================================================
+PROJECT CODE
+==================================================
+
+projectCode must be unique.
+
+Use a format such as:
+
+PROJECT-000001
+
+However, do NOT depend on the database UUID for the human-readable project code.
+
+The backend/service layer can generate the formatted project code.
+
+Do not implement code-generation service in this step.
+
+==================================================
+PROJECT CATEGORY
+==================================================
+
+Create ProjectCategory.
+
+The category system must support the following business structure.
+
+CMS:
+
+- Copy Website
+- AI / Custom
+- WordPress
+- Strapi
+- PHP
+- Node
+
+E-COMMERCE:
+
+- AI / Custom
+- WooCommerce
+- Shopify
+- PHP
+- Node
+
+CUSTOM WEB:
+
+- AI / Custom
+- PHP
+- Node
+
+MOBILE APP:
+
+- PHP
+- Node
+
+IMPORTANT:
+
+Do not hard-code this entire hierarchy as a giant enum.
+
+Use database records so categories can be expanded later.
+
+Recommended structure:
+
+ProjectCategory
+- id
+- parentId nullable
+- name
+- code
+- description nullable
+- isActive
+- createdAt
+- updatedAt
+
+This allows:
+
+CMS
+ ├── COPY_WEBSITE
+ ├── AI_CUSTOM
+ ├── WORDPRESS
+ ├── STRAPI
+ ├── PHP
+ └── NODE
+
+ECOMMERCE
+ ├── AI_CUSTOM
+ ├── WOOCOMMERCE
+ ├── SHOPIFY
+ ├── PHP
+ └── NODE
+
+CUSTOM_WEB
+ ├── AI_CUSTOM
+ ├── PHP
+ └── NODE
+
+MOBILE_APP
+ ├── PHP
+ └── NODE
+
+Use parentId for hierarchy.
+
+==================================================
+PROJECT TEAM
+==================================================
+
+Create ProjectTeam.
+
+A project can have multiple internal employees.
+
+Fields:
+
+- id UUID primary key
+- projectId
+- userId
+- departmentId
+- projectRole
+- allocationPercentage nullable
+- assignedAt
+- releasedAt nullable
+
+Examples of projectRole:
+
+PROJECT_MANAGER
+PROJECT_COORDINATOR
+UI_TL
+UI_RESOURCE
+UX_TL
+UX_RESOURCE
+DEV_TL
+DEV_RESOURCE
+QA
+SALES
+ACCOUNTS
+
+Do NOT create separate designer/developer/QA columns in Project.
+
+Project team membership should be represented through ProjectTeam.
+
+Prevent duplicate active assignment where appropriate.
+
+==================================================
+PROJECT STATUS
+==================================================
+
+Important architectural rule:
+
+Do NOT treat every business reason as a completely separate project status.
+
+Separate:
+
+1. Project lifecycle status
+2. Project status reason
+
+Create the main ProjectStatus enum:
+
+PLANNED
+ONGOING
+ON_HOLD
+COMPLETED
+TERMINATED
+
+The project may also have a status reason.
+
+Create a ProjectStatusReason enum:
+
+PAYMENT_PENDING
+NO_CLIENT_RESPONSE
+OUT_OF_SCOPE
+CONTENT_PENDING
+IMAGE_PENDING
+PAYMENT_GATEWAY_PENDING
+SMS_PENDING
+SMTP_PENDING
+TOO_MANY_CORRECTIONS
+REPEATED_CORRECTIONS
+BUDGET_EXCEEDED
+DATE_EXCEEDED
+MEETING_PENDING
+APPROVAL_PENDING
+OTHER
+
+If a better normalized design is needed, document it before changing the architecture.
+
+Do NOT make statuses like:
+
+PAYMENT_PENDING
+BUDGET_EXCEEDED
+DATE_EXCEEDED
+
+the main lifecycle status.
+
+Those are reasons/conditions.
+
+==================================================
+PROJECT PRIORITY
+==================================================
+
+Create:
+
+LOW
+MEDIUM
+HIGH
+URGENT
+
+==================================================
+QUALITY LEVEL
+==================================================
+
+The business requires a project quality level.
+
+Use an enum only if the levels are clearly fixed.
+
+Suggested:
+
+STANDARD
+PREMIUM
+HIGH
+
+If the existing business process requires different levels, document the alternative rather than inventing additional values.
+
+==================================================
+PLATFORM
+==================================================
+
+Platform may contain values such as:
+
+WEB
+MOBILE
+CMS
+ECOMMERCE
+CUSTOM_WEB
+
+Do not duplicate the category hierarchy inside platform.
+
+If platform is better represented as a category-derived value, document that option.
+
+==================================================
+PROJECT STATUS HISTORY
+==================================================
+
+Create ProjectStatusHistory.
+
+Fields:
+
+- id UUID primary key
+- projectId
+- fromStatus nullable
+- toStatus
+- reason nullable
+- changedById
+- createdAt
+
+Every important project status transition must be historically traceable.
+
+Examples:
+
+PLANNED → ONGOING
+ONGOING → ON_HOLD
+ON_HOLD → ONGOING
+ONGOING → COMPLETED
+ONGOING → TERMINATED
+
+Do not overwrite history.
+
+==================================================
+PROJECT COMMENTS
+==================================================
+
+Create ProjectComment.
+
+Fields:
+
+- id UUID primary key
+- projectId
+- userId
+- comment
+- createdAt
+- updatedAt
+
+Comments are internal ERP comments.
+
+Do not create customer-facing comments.
+
+==================================================
+PROJECT ACTIONS
+==================================================
+
+Create ProjectAction.
+
+This represents follow-up/action items related to a project.
+
+Examples:
+
+- CLIENT_RESPONSE_REQUIRED
+- PAYMENT_FOLLOW_UP
+- CONTENT_REQUIRED
+- APPROVAL_REQUIRED
+- MEETING_REQUIRED
+- INTERNAL_ACTION
+- OTHER
+
+Fields:
+
+- id UUID primary key
+- projectId
+- assignedToId
+- createdById
+- actionType
+- title
+- description nullable
+- dueDate nullable
+- status
+- completedAt nullable
+- createdAt
+- updatedAt
+
+Action status:
+
+PENDING
+IN_PROGRESS
+COMPLETED
+CANCELLED
+
+Do not create a separate action table for every department.
+
+==================================================
+PROJECT CREATION FLOW
+==================================================
+
+The intended future workflow is:
+
+Sales
+ ↓
+Customer
+ ↓
+Proposal
+ ↓
+Proposal Accepted
+ ↓
+Project Created
+ ↓
+Accounts / Payment
+ ↓
+PMO
+ ↓
+Project Coordinator
+ ↓
+UI / UX / Development / QA
+
+Do not implement this workflow logic yet.
+
+This step only creates the database foundation.
+
+==================================================
+PROPOSAL RELATIONSHIP
+==================================================
+
+Project.proposalId is nullable.
+
+A project may be created from an accepted proposal.
+
+Do not enforce the complete proposal status → project creation workflow at database level.
+
+That belongs in the backend service layer.
+
+Do not create a reverse "projectId" field in Proposal unless it is genuinely required.
+
+Avoid circular or duplicated relationships.
+
+==================================================
+CUSTOMER RELATIONSHIP
+==================================================
+
+Project.customerId is required.
+
+A project must belong to a customer.
+
+Use the existing Customer model.
+
+Do not duplicate customer information in Project.
+
+==================================================
+USER RELATIONSHIPS
+==================================================
+
+Use the existing User model for:
+
+- salesperson
+- project manager
+- project coordinator
+- team members
+- status changer
+- commenters
+- action assignees
+- action creators
+
+Do not create separate employee tables.
+
+==================================================
+INDEXES
+==================================================
+
+Project:
+
+- projectCode unique
+- customerId
+- proposalId
+- salesPersonId
+- projectManagerId
+- projectCoordinatorId
+- categoryId
+- status
+- priority
+- plannedEndDate
+- createdAt
+
+ProjectTeam:
+
+- projectId
+- userId
+- departmentId
+- projectRole
+
+Consider a composite unique constraint for projectId + userId where appropriate.
+
+ProjectStatusHistory:
+
+- projectId
+- changedById
+- createdAt
+
+ProjectComment:
+
+- projectId
+- userId
+- createdAt
+
+ProjectAction:
+
+- projectId
+- assignedToId
+- status
+- dueDate
+
+==================================================
+DATE RULES
+==================================================
+
+Use PostgreSQL-compatible DateTime/timestamptz through Prisma.
+
+Do not store dates as strings.
+
+Support:
+
+- planned start
+- planned completion
+- actual completion
+- action due dates
+- status history timestamps
+
+==================================================
+CALCULATED VALUES
+==================================================
+
+DO NOT store:
+
+progressPercentage
+budgetUsed
+budgetRemaining
+taskCompletionPercentage
+completedTaskCount
+totalTaskCount
+
+These should be calculated later from:
+
+Tasks
+Budget Transactions
+Department work
+etc.
+
+==================================================
+IMPORTANT
+==================================================
+
+Do NOT create:
+
+- Project Budget
+- Budget Allocation
+- Payments
+- Invoices
+- Tasks
+- UI Pages
+- UX Sprints
+- Development Sprints
+- QA
+- Bugs
+- Change Requests
+- Approval Requests
+- Notifications
+
+Those are future database steps.
+
+==================================================
+MIGRATION SAFETY
+==================================================
+
+Before implementation:
+
+1. Inspect existing Prisma schema.
+2. Inspect previous migrations.
+3. Verify User relationships.
+4. Verify Customer relationship.
+5. Verify Proposal relationship.
+6. Follow existing naming conventions.
+
+Then:
+
+1. Implement Prisma models.
+2. Implement enums.
+3. Implement relations.
+4. Implement indexes.
+5. Implement constraints.
+6. Create a new migration.
+7. Run Prisma format.
+8. Run Prisma validate.
+9. Run available tests/type checks.
+
+DO NOT:
+
+- prisma migrate reset
+- delete existing migrations
+- drop existing tables
+- recreate existing models
+- modify approved modules unnecessarily
+
+==================================================
+SEED DATA
+==================================================
+
+Seed the ProjectCategory hierarchy.
+
+Create:
+
+CMS
+ ├── Copy Website
+ ├── AI / Custom
+ ├── WordPress
+ ├── Strapi
+ ├── PHP
+ └── Node
+
+E-Commerce
+ ├── AI / Custom
+ ├── WooCommerce
+ ├── Shopify
+ ├── PHP
+ └── Node
+
+Custom Web
+ ├── AI / Custom
+ ├── PHP
+ └── Node
+
+Mobile App
+ ├── PHP
+ └── Node
+
+Use stable codes for these categories.
+
+Do not create fake projects.
+
+==================================================
+DOCUMENTATION
+==================================================
+
+Update:
+
+/docs/database/README.md
+
+/docs/database/ERD.md
+
+/docs/database/DECISIONS.md
+
+Document:
+
+- Project as the central business entity
+- Project → Customer
+- Project → Proposal
+- Project → Users
+- Project → ProjectTeam
+- Project lifecycle status vs status reason
+- Project category hierarchy
+- Why calculated values are not stored
+- Why team members are not stored directly on Project
+
+==================================================
+FINAL RESPONSE
+==================================================
+
+After implementation report:
+
+1. Models created
+2. Enums created
+3. Relationships
+4. Project category hierarchy
+5. Indexes
+6. Constraints
+7. Migration name
+8. Prisma validation result
+9. Any design decisions
+10. Any issues that should be reviewed before Step 7
+
+Then STOP.
+
+Do not implement Step 7 automatically.

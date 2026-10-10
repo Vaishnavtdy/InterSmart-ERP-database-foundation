@@ -1,10 +1,11 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { DepartmentCode, PrismaClient } from "../generated/client/client.js";
+import { seedProjectCategories } from "./project-categories.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required to seed department records.");
+  throw new Error("DATABASE_URL is required to seed reference records.");
 }
 
 const prisma = new PrismaClient({
@@ -24,15 +25,16 @@ const departmentCodes = [
 ];
 
 try {
-  await prisma.$transaction(
-    departmentCodes.map((code) =>
-      prisma.department.upsert({
+  await prisma.$transaction(async (tx) => {
+    for (const code of departmentCodes) {
+      await tx.department.upsert({
         where: { code },
         update: {},
         create: { code },
-      }),
-    ),
-  );
+      });
+    }
+    await seedProjectCategories(tx);
+  }, { timeout: 30_000 });
 } finally {
   await prisma.$disconnect();
 }

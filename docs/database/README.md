@@ -205,3 +205,105 @@ models, application endpoints, or screens are introduced.
   status, creation time; and item version/sort order.
 - No seed records are needed: enums provide the controlled status/reference
   values, and no fake commercial transactions are inserted.
+
+## Project management core (Database Step 6)
+
+Migration: `20261010104233_project_core`.
+
+Project is the central business entity. This step adds only its core records,
+team membership, lifecycle history, internal comments, and follow-up actions.
+Budget, payments, invoices, general tasks, department deliverables, bugs,
+change/approval requests, notifications, and application/UI code remain outside
+this step. None of the prohibited calculated totals or resource-specific
+employee columns is stored on Project.
+
+| Table | Fields |
+| --- | --- |
+| `projects` | UUID `id`; unique `project_code`; `name`; required `customer_id`, `sales_person_id`, `category_id`; nullable `proposal_id`, `project_manager_id`, `project_coordinator_id`, `quality_level`, `platform`, `page_count`; `priority`, `status`; nullable `start_date`, `planned_end_date`, `actual_end_date`; `created_at`, `updated_at`; nullable `deleted_at` |
+| `project_categories` | UUID `id`; nullable `parent_id`, `description`; `name`; unique `code`; `is_active`; `created_at`, `updated_at` |
+| `project_teams` | UUID `id`; required `project_id`, `user_id`, `department_id`, `project_role`; nullable `allocation_percentage`; `assigned_at`; nullable `released_at` |
+| `project_status_histories` | UUID `id`; `project_id`; nullable `from_status`; required `to_status`, `changed_by_id`; nullable `reason`; `created_at` |
+| `project_comments` | UUID `id`; required `project_id`, `user_id`, internal `comment`; `created_at`, `updated_at` |
+| `project_actions` | UUID `id`; required `project_id`, `assigned_to_id`, `created_by_id`, `action_type`, `title`; nullable `description`, `due_date`; `status`; nullable `completed_at`; `created_at`, `updated_at` |
+
+- Lifecycle: `PLANNED` (default), `ONGOING`, `ON_HOLD`, `COMPLETED`, `TERMINATED`.
+  Reasons are separate `ProjectStatusReason` values on history rows, not extra
+  lifecycle statuses or repeated reason columns on Project.
+- Priority: `LOW`, `MEDIUM` (default), `HIGH`, `URGENT`. Optional quality:
+  `STANDARD`, `PREMIUM`, `HIGH`. Optional coarse platform: `WEB`, `MOBILE`,
+  `CMS`, `ECOMMERCE`, `CUSTOM_WEB`; technology choices remain category records.
+- Team roles: `PROJECT_MANAGER`, `PROJECT_COORDINATOR`, `UI_TL`, `UI_RESOURCE`,
+  `UX_TL`, `UX_RESOURCE`, `DEV_TL`, `DEV_RESOURCE`, `QA`, `SALES`, `ACCOUNTS`.
+  These are operational project roles, not authentication/access-control roles.
+- Action types: `CLIENT_RESPONSE_REQUIRED`, `PAYMENT_FOLLOW_UP`,
+  `CONTENT_REQUIRED`, `APPROVAL_REQUIRED`, `MEETING_REQUIRED`,
+  `INTERNAL_ACTION`, `OTHER`. Action status: `PENDING` (default),
+  `IN_PROGRESS`, `COMPLETED`, `CANCELLED`.
+- Allocation is nullable `NUMERIC(5,2)`, bounded to 0–100; it does not enforce
+  employee-wide allocation totals. Release must not precede assignment.
+- A SQL partial unique index permits only one active assignment per
+  `(project_id, user_id)` while retaining released assignments and allowing
+  later reassignment. Release the old row before inserting its replacement.
+- Status history is append-only: SQL triggers reject updates, deletes, and
+  truncation. Status changes are not automatically logged by the database;
+  future services must update Project and insert the attributed history row
+  atomically. Correct history with a new event rather than editing an old one.
+- Page count is nonnegative. Known planned/actual end dates cannot precede
+  a known start date. All date/time fields use `TIMESTAMPTZ(6)`.
+- Hard deletion of customers, linked proposals, categories, salespeople, and
+  referenced team/history/comment/action records is restricted. Optional
+  manager/coordinator links use `SET NULL` if those employees can be deleted.
+  Project soft deletion retains all child records.
+- Project code is explicitly supplied, independent of UUID. No code-generation,
+  proposal acceptance/conversion, status-transition, or team-sync service is
+  implemented. Proposal linkage is optional and deliberately not unique.
+
+### Seeded project categories
+
+The existing seed now creates 20 category records, preserving the nine
+departments. Root codes are `CMS`, `ECOMMERCE`, `CUSTOM_WEB`, `MOBILE_APP`;
+child codes prefix the parent (for example `CMS_PHP`, `ECOMMERCE_PHP`), so
+repeated technology labels remain globally unambiguous.
+
+```text
+CMS
+ ├─ Copy Website
+ ├─ AI / Custom
+ ├─ WordPress
+ ├─ Strapi
+ ├─ PHP
+ └─ Node
+E-Commerce
+ ├─ AI / Custom
+ ├─ WooCommerce
+ ├─ Shopify
+ ├─ PHP
+ └─ Node
+Custom Web
+ ├─ AI / Custom
+ ├─ PHP
+ └─ Node
+Mobile App
+ ├─ PHP
+ └─ Node
+```
+
+Run the existing `db:seed` command. Upserts are idempotent and retain category
+IDs, names, descriptions, and activation choices. A conflicting parent for a
+reserved seed code fails explicitly rather than silently moving existing
+records. No fake projects or financial transactions are seeded.
+
+### Project-core indexes and migration-only objects
+
+- Project: unique code; all customer/proposal/employee/category FKs;
+  `(status, deleted_at)`, `(priority, deleted_at)`, planned end, creation time.
+- Categories: unique code and `(parent_id, is_active)`.
+- Team: project/release time, employee/release time, department, role, and the
+  active-assignment partial unique index.
+- History/comments: project/creation time, actor/author, and creation time.
+- Actions: project/status, assignee/status/due date, creator, status/due date,
+  and due date.
+
+Preserve migration-only check constraints, the partial index, and history
+triggers/function when reviewing future migrations; Prisma schema comparison
+alone does not verify all of these PostgreSQL objects.

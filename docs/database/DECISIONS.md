@@ -276,11 +276,125 @@
   service must define how it maintains header validity when current changes.
   All timestamps remain `TIMESTAMPTZ(6)`.
 
-## Future project conversion
+## Proposal-step conversion boundary (Step 5)
 
-- **Decision:** No project relationship is introduced now.
+- **Decision:** No project relationship was introduced in Step 5.
 - **Reason:** Conversion must be designed with the future Project module.
   It should reference the exact accepted proposal version, not merely the
   mutable current-version pointer, and be idempotent to avoid duplicate
   projects. Legal/customer snapshots, accepted-value currency semantics,
   status auditing, and conversion authorization must be resolved there.
+
+## Project as the central business entity
+
+- **Migration:** `20261010104233_project_core` adds exactly six project-core
+  models and eight enums. Existing modules receive inverse Prisma relations
+  only; no existing SQL columns, constraints, or migrations are rewritten.
+- **Decision:** Project ties together the existing customer, optional proposal,
+  and employee participants. Future Sales, Accounts, PMO, coordinator, UI, UX,
+  development, QA, budget, payments, tasks, meetings, customer feedback, files,
+  change requests, and notifications will connect through Project.
+- **Reason:** The user identified Project as the core InterSmart business
+  entity, not a departmental work table.
+- **Normalized boundaries:** There are no resource-specific designer/developer/
+  QA employee fields, budget/progress/task counts, hold/termination reason text,
+  or duplicated customer details on Project. Team participation belongs in
+  ProjectTeam; reasons belong in status history. Calculated metrics will come
+  from later task, budget-transaction, and departmental-work modules.
+
+## Project lifecycle, reasons, and history
+
+- **Decision:** Use exactly the five requested lifecycle statuses, default
+  `PLANNED`. Store the 15 reason values separately in nullable history `reason`.
+  The most recent recorded event supplies the current reason; a resume event
+  with null reason clears an old condition.
+- **Reason:** Payment pending, exceeded budget/dates, or missing content are
+  explanations/conditions, not lifecycle stages. The requested history model
+  already holds reason without introducing another source of truth.
+- **Append-only enforcement:** SQL row triggers reject UPDATE/DELETE of history;
+  a statement trigger rejects TRUNCATE. Retention FKs also prevent cascading
+  parent/author deletion. Corrections require a new historical event.
+- **Service boundary:** No workflow logic or automatic status-history insertion
+  is implemented. Future writers must atomically change status and record
+  from/to status, reason, actor, and timestamp, including creation from null.
+  Tied timestamps need deterministic ordering and a defined event-ordering
+  policy before relying on history as a current-condition query.
+- **Scope:** Same-status events are allowed for reason changes. SQL does not
+  constrain permitted transition paths or reason/status combinations.
+
+## Extensible project categories, quality, and platform
+
+- **Decision:** Use self-referencing ProjectCategory records, globally unique
+  stable codes, and a nullable parent. Seed four roots and 16 children with
+  root-prefixed child codes, not a large hierarchy enum.
+- **Reason:** PHP/Node/AI occur under several categories, and business categories
+  may expand independently of schema deployments.
+- **Seed behavior:** Transactional create-only upserts preserve IDs and
+  administrator-edited labels, descriptions, and activation flags. Reserved
+  codes under a different parent fail rather than silently moving records.
+  Extra administrator-created categories are not deleted by the seed.
+- **Hierarchy guard:** A SQL check prevents self-parenting; FKs prevent
+  nonexistent parents and restrict removing used parents/categories. Longer
+  cycles, active-category validation, and whether only leaf categories may
+  receive projects require future category-writing/selection service checks.
+- **Quality:** Optional `STANDARD`, `PREMIUM`, `HIGH` uses the suggested fixed
+  levels only; do not invent additional business tiers. Revisit with the
+  business if quality must become configurable.
+- **Platform:** Optional coarse `WEB`, `MOBILE`, `CMS`, `ECOMMERCE`, `CUSTOM_WEB`
+  uses no technology/subcategory hierarchy. Deriving this classification from
+  category roots may be preferable once mapping rules are agreed; no mapping
+  or synchronization logic is imposed here.
+
+## Team assignments and responsible employees
+
+- **Decision:** Required salesperson plus optional manager/coordinator identify
+  accountable employees. All other participation is represented by ProjectTeam.
+  The 11 project roles are operational roles, not global authorization roles.
+- **Reason:** Adding UI/UX/developer/QA employee columns would prevent flexible
+  multi-person staffing and erase assignment history.
+- **Active uniqueness:** A migration-only unique index on `(projectId, userId)`
+  where `releasedAt IS NULL` prevents duplicate active membership across roles.
+  Released history remains, allowing an employee to return later. If the
+  business needs simultaneous multiple roles per person, explicitly review
+  that uniqueness policy before relaxing it.
+- **Allocation:** Nullable `Decimal(5,2)`, 0–100, supports unknown or fractional
+  allocation without floating point. Employee-wide allocation sums are not
+  enforced by individual rows; future allocation services must define them.
+- **Dates/department:** Assignment defaults to now; release cannot precede it.
+  Department is the assignment's historical department context; a later
+  employee transfer does not rewrite old roster rows.
+- **Consistency:** Manager/coordinator/salesperson pointers do not automatically
+  create or synchronize team rows. Future services must define that policy.
+
+## Internal comments, actions, dates, and retention
+
+- **Decision:** Comments are internal employee-authored text. ProjectAction is
+  one shared follow-up entity with the seven requested types, required employee
+  assignee/creator, and four statuses defaulting to `PENDING`.
+- **Reason:** Neither departmental action tables nor customer-facing comments
+  are requested; ProjectAction is not a replacement for the later Tasks module.
+- **Dates:** Native timezone-aware timestamps support planned/actual completion
+  and action due/completed times. Known end dates cannot precede a known start.
+  Page count is nullable and nonnegative. Priority defaults to `MEDIUM`.
+- **Retention:** Project soft deletion leaves teams, history, comments, and
+  actions intact. Mandatory customer, salesperson, category, proposal origin,
+  membership/author/actor links restrict hard deletion. Nullable manager and
+  coordinator links clear on employee deletion only when other references
+  do not already restrict deletion.
+- **Boundary:** Action completion timestamps and valid status transitions are
+  future service responsibilities; no state machine is implemented here.
+
+## Project origin and pre-conversion review
+
+- **Decision:** Use only nullable `Project.proposalId` and required customer.
+  Add no reverse scalar `Proposal.projectId`, no unique proposal ID constraint,
+  and no proposal-version FK beyond the user's requested project fields.
+- **Reason:** Avoid circular/duplicated origin links and premature restrictions
+  on how many projects a proposal may produce. UUID and human-readable code
+  remain independent; formatted-code generation is a future service.
+- **Review before conversion:** Decide one-versus-many projects per proposal,
+  idempotent conversion rules, customer/proposal consistency, accepted-status
+  verification, and how the exact accepted commercial version is frozen.
+  The present header link alone does not identify that immutable version.
+  These are explicit unresolved service/schema decisions, not implemented
+  acceptance checks. No Step 7 modules are introduced.

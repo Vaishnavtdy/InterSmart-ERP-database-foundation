@@ -11,8 +11,9 @@ single-organization PostgreSQL database.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/database run db:validate` — validate the Prisma schema
 - `pnpm --filter @workspace/database run db:generate` — generate the Prisma client
-- `pnpm --filter @workspace/database run db:migrate:dev -- --name <change-name>` — create and apply a development migration
+- `pnpm --filter @workspace/database run db:migrate:dev --name <change-name> --create-only` — create a development migration for SQL review
 - `pnpm --filter @workspace/database run db:migrate:deploy` — apply committed migrations
+- `pnpm --filter @workspace/database run db:seed` — seed the nine departments without creating accounts
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
@@ -27,12 +28,14 @@ single-organization PostgreSQL database.
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `packages/database/prisma/schema.prisma` — ERP database schema
+- `packages/database/prisma/migrations/` — reviewed Prisma migrations
+- `docs/database/` — database usage, ERD, and design decisions
 
 ## Architecture decisions
 
 - Single organization only: no organizations table or tenant/organization IDs.
-- No domain models or migration are added until the first module is approved.
+- The approved employee foundation contains users, departments, and employee profiles only.
 - Existing `lib/db/` Drizzle scaffold is preserved; new ERP schema changes belong in `packages/database`.
 
 ## Product
@@ -41,7 +44,10 @@ _Describe the high-level user-facing capabilities of this app once they exist._
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.
+- Stop after reporting each completed step and wait for the user's next instruction.
+- Do not reset the database or delete approved models without explicit instruction.
+- Do not build frontend screens before the database foundation is approved.
 
 ## Gotchas
 

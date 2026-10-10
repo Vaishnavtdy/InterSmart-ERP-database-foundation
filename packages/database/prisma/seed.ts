@@ -1,5 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { DepartmentCode, PrismaClient } from "../generated/client/client";
+import { DepartmentCode, PrismaClient } from "../generated/client/client.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -24,13 +24,15 @@ const departmentCodes = [
 ];
 
 try {
-  for (const code of departmentCodes) {
-    await prisma.department.upsert({
-      where: { code },
-      update: {},
-      create: { code },
-    });
-  }
+  await prisma.$transaction(
+    departmentCodes.map((code) =>
+      prisma.department.upsert({
+        where: { code },
+        update: {},
+        create: { code },
+      }),
+    ),
+  );
 } finally {
   await prisma.$disconnect();
 }

@@ -1,0 +1,1 @@
+- [Prisma ESM imports](prisma-esm-imports.md) — generated enum re-exports need explicit module extensions under NodeNext.

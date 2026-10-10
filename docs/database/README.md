@@ -646,3 +646,115 @@ Superuser disabling of triggers is outside ordinary application guarantees.
 No receipts binary column, new file resource enum, MinIO metadata duplication,
 invoice/tax/credit-note models, generic approvals, notifications, AWS services,
 or financial workflow/API/UI is added. No seed data is needed.
+
+## Common Task Engine (Database Step 11)
+
+Migration: `20261010123004_common_task_engine`, incremental and transactional.
+No common task engine previously existed. Existing project_actions remain
+high-level follow-ups (payment/content/client/approval/meeting/internal actions);
+tasks are executable work items. Neither replaces the other.
+
+Project → Tasks → Workstream / Type / Assignee / Parent and Children /
+Comments / Dependencies / Status History / Assignment History.
+
+UI, UX, Development, QA, PMO and other workflows reuse this engine rather than
+create separate task tables. Workstream classifies business ownership, not an
+employee's current department; taskType classifies the kind of work.
+
+### Models
+
+| Model / table | Required fields | Nullable fields |
+| --- | --- | --- |
+| `Task` / `tasks` | UUID id; projectId; unique taskCode (32); title (255); taskType (GENERAL); workstream (OTHER); status (TODO); reused ProjectPriority (MEDIUM); createdById; sortOrder (0); createdAt; updatedAt | parentTaskId; description TEXT; assignedToId; startDate; dueDate; completedAt; estimatedHours/actualHours NUMERIC(10,2); deletedAt |
+| `TaskDependency` / `task_dependencies` | UUID id; taskId; dependsOnTaskId; dependencyType (BLOCKS); createdAt | none |
+| `TaskComment` / `task_comments` | UUID id; taskId; userId; comment TEXT; createdAt; updatedAt | none |
+| `TaskStatusHistory` / `task_status_history` | UUID id; taskId; toStatus; changedById; createdAt | fromStatus; reason TEXT |
+| `TaskAssignment` / `task_assignments` | UUID id; taskId; assignedToId; assignedById; assignedAt (now) | releasedAt; reason TEXT |
+
+All timestamps are TIMESTAMPTZ(6). Prisma generates UUIDs, creation timestamps
+default now, and Task/TaskComment updatedAt is Prisma-managed. Raw SQL writers
+must set/update updatedAt. Optional hours distinguish unknown from a known zero;
+hours are finite nonnegative Decimal summaries, not detailed time-log truth.
+No task/project progress percentage is stored. sortOrder is nonnegative and
+does not impose global sequencing; future queries need tie-breakers.
+
+### Enums
+
+- `TaskType`: GENERAL, DESIGN, DEVELOPMENT, TESTING, BUG_FIX, REVIEW, RESEARCH,
+  DOCUMENTATION, MEETING, FOLLOW_UP, APPROVAL, DEPLOYMENT, OTHER.
+- `TaskWorkstream`: PMO, BUSINESS_ANALYSIS, UI, UX, DEVELOPMENT, QA,
+  PROJECT_MANAGEMENT, SALES, ACCOUNTS, HR, OTHER.
+- `TaskStatus`: TODO, ASSIGNED, IN_PROGRESS, BLOCKED, IN_REVIEW, REWORK,
+  COMPLETED, CANCELLED.
+- `TaskDependencyType`: BLOCKS, RELATED.
+- Priority reuses existing `ProjectPriority`: LOW, MEDIUM, HIGH, URGENT.
+  No duplicate TaskPriority enum is introduced.
+
+### Relationships and graph integrity
+
+Tasks require a Project and creator User; current assignee and parent are
+nullable. The self-referencing parent uses (projectId,parentTaskId) →
+(projectId,id), backed by a composite unique key, so children cannot belong to
+another project. A SQL check prevents direct self-parenting.
+
+Dependencies reference two Task rows. A.taskId → B.dependsOnTaskId means A
+depends on B; BLOCKS means B blocks A. RELATED is a directed stored association,
+not an automatically mirrored edge. The unique
+(taskId,dependsOnTaskId,dependencyType) prevents duplicates, while a check
+forbids self-dependency. Different types for the same pair are permitted.
+Cross-project dependencies are not prohibited by the foundation; future
+authorization/policy must decide whether a particular link is appropriate.
+Longer hierarchy/dependency cycles, symmetric RELATED normalization, depth,
+dependency completion rules and scheduling belong to future services. There
+are no recursive graph triggers or automatic status propagation.
+
+Comments and status history reference Task and author/changer User.
+Assignments reference Task, assignee User, and assigning User.
+All 13 new FKs restrict deletion; no destructive parent/dependency cascades.
+Parent FK updates use NO ACTION; UUID identities should remain stable.
+
+### History and future writer contracts
+
+Status history is append-only: UPDATE, DELETE and TRUNCATE are rejected.
+Null fromStatus supports initial entries; reason is free-form, not a
+department-specific enum. Current task status and its attributed history must
+be written atomically by future services; no automatic history writer or
+transition/state-completion-date rules are implemented.
+
+Assignment rows preserve task, assignee, assigning actor, assignment time,
+and reason. Only releasedAt on an open row may be set once, not before
+assignedAt. Released rows cannot be reopened or redated, and assignment history
+cannot be deleted/truncated. One SQL partial unique index permits at most one
+unreleased assignment per task; any number of historical periods is supported.
+It does not enforce non-overlap between arbitrary backdated closed periods.
+reason describes assignment; no separate release actor/reason is added.
+
+Future reassignment must lock the task, release the old period, insert the new
+one, update tasks.assignedToId and any related status/history in one transaction.
+Unassignment releases the old period and sets current assignee to NULL.
+The database does not synchronize current assignee with active history:
+standalone task creation/assignment is structurally valid without auto-events.
+Code generation, identity/permission checks, graph validation, text validation,
+status policies, date meanings and time-summary reconciliation remain services.
+
+Tasks use deletedAt or CANCELLED rather than removing work history. Their
+children/comments/dependencies/histories restrict physical deletion, and the
+history guards retain attribution even after cancellation/soft deletion.
+No blanket Task DELETE trigger is introduced for unused tasks without dependents.
+
+### Indexes and deferred scope
+
+Tasks index project/status, parent, assignee/status, creator, status/deletedAt,
+priority, workstream, type, dueDate, and createdAt, plus unique code and parent
+owner keys. Leading composite prefixes cover project/assignee lookup.
+Dependency uniqueness covers taskId; dependsOnTaskId has a reverse index.
+Comments index task/date, author, and createdAt. Status history indexes task/date,
+changer, and createdAt. Assignments index task/releasedAt, assignee/assignedAt,
+assigning actor, and assignedAt, plus active-period partial uniqueness.
+
+Existing Files/ProjectResources are project-scoped. A future task-file association
+can reference those files with ownership validation; no attachment join, binary
+columns, second storage system, or duplicated MinIO metadata is added now.
+No sprints, QA bugs, UI/UX domain tables, developer assignments, time entries,
+Hubstaff integration, approvals, notifications, task-budget FKs, AWS, application
+workflow, API/UI, or seed records are implemented in Step 11.

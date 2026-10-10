@@ -2,6 +2,76 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ TASKS : "executable work"
+  TASKS o|--o{ TASKS : "parent and children in same project"
+  USERS ||--o{ TASKS : "creates"
+  USERS o|--o{ TASKS : "current assignee"
+  TASKS ||--o{ TASK_DEPENDENCIES : "owns dependency"
+  TASKS ||--o{ TASK_DEPENDENCIES : "referenced prerequisite"
+  TASKS ||--o{ TASK_COMMENTS : "discussion"
+  USERS ||--o{ TASK_COMMENTS : "comments"
+  TASKS ||--o{ TASK_STATUS_HISTORY : "status history"
+  USERS ||--o{ TASK_STATUS_HISTORY : "changes status"
+  TASKS ||--o{ TASK_ASSIGNMENTS : "assignment periods"
+  USERS ||--o{ TASK_ASSIGNMENTS : "receives"
+  USERS ||--o{ TASK_ASSIGNMENTS : "assigns"
+
+  TASKS {
+    uuid id PK
+    uuid project_id FK
+    uuid parent_task_id FK "nullable, same project"
+    string task_code UK
+    string title
+    string description "nullable"
+    TaskType task_type
+    TaskWorkstream workstream
+    TaskStatus status
+    ProjectPriority priority "reused"
+    uuid created_by_id FK
+    uuid assigned_to_id FK "nullable"
+    timestamptz start_date "nullable"
+    timestamptz due_date "nullable"
+    timestamptz completed_at "nullable"
+    decimal estimated_hours "nullable summary"
+    decimal actual_hours "nullable summary"
+    int sort_order
+    timestamptz created_at
+    timestamptz updated_at
+    timestamptz deleted_at "nullable"
+  }
+  TASK_DEPENDENCIES {
+    uuid id PK
+    uuid task_id FK
+    uuid depends_on_task_id FK
+    TaskDependencyType dependency_type
+    timestamptz created_at
+  }
+  TASK_COMMENTS {
+    uuid id PK
+    uuid task_id FK
+    uuid user_id FK
+    string comment
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  TASK_STATUS_HISTORY {
+    uuid id PK
+    uuid task_id FK
+    TaskStatus from_status "nullable"
+    TaskStatus to_status
+    uuid changed_by_id FK
+    string reason "nullable"
+    timestamptz created_at
+  }
+  TASK_ASSIGNMENTS {
+    uuid id PK
+    uuid task_id FK
+    uuid assigned_to_id FK
+    uuid assigned_by_id FK
+    timestamptz assigned_at
+    timestamptz released_at "nullable"
+    string reason "nullable"
+  }
   PROJECTS ||--o{ PAYMENT_REQUESTS : "has requests"
   CUSTOMERS ||--o{ PAYMENT_REQUESTS : "owes"
   USERS ||--o{ PAYMENT_REQUESTS : "requests"
@@ -541,3 +611,12 @@ overpayments remain visible. All new FKs restrict deletion. Requests soft-delete
 payments cannot physically delete/truncate, and both histories are append-only.
 Services must enforce matching project/customer/request/currency and atomic
 current-status/history writes; the database does not implement those workflows.
+
+Tasks are shared across workstreams; project_actions remain separate high-level
+follow-ups. Parent tasks must belong to the same project; self-parenting and
+self-dependencies are rejected. Dependencies may have multiple prerequisites.
+Status history is append-only; assignment facts are retained with one-time
+release and at most one active period per task. FKs do not cascade deletion.
+Current state/history coherence and longer cycle checks are future service rules.
+Detailed time tracking, sprints, bugs, approvals, task files and notifications
+are intentionally deferred; hours are nullable Decimal summaries only.

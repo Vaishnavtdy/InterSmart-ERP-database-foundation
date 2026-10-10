@@ -673,3 +673,50 @@
 - **Scope:** No provider integration, notifications, invoices, generic approval,
   new file/resource metadata, seed fixtures, lifecycle engine or API/UI behavior.
   Payment methods including STRIPE/PAYPAL are classification values only.
+
+## Common task engine
+
+- **Migration:** `20261010123004_common_task_engine`. Five common models and
+  four enums only; previous migrations and existing business models remain.
+- **Actions vs tasks:** ProjectAction is a high-level follow-up, not a work
+  hierarchy/dependency/history engine. Retain it separately from executable
+  tasks. Future action-to-task linkage may be designed without replacing either.
+- **Shared metadata:** TaskType and TaskWorkstream answer different questions.
+  Workstream is not a Department FK; transfers do not automatically reclassify
+  work. Reuse ProjectPriority because its four values exactly match the brief.
+- **Hierarchy:** Project is required, parent optional. A composite same-project
+  parent FK plus direct-self check prevents nonsensical ownership/self-parenting.
+  Longer cycles and depth rules remain future service checks, not recursive SQL.
+- **Dependencies:** Separate many-to-many directed edges, unique by both tasks
+  and type. Self-edges are rejected. BLOCKS means the referenced prerequisite
+  blocks the owning task; RELATED does not auto-create a reverse edge. No
+  cross-project ban is invented; future permissions/policy decide permitted links.
+- **Hours/dates:** Decimal(10,2) follows existing scope-estimate precision.
+  Nullable finite/nonnegative estimated/actual hours are summaries, not time-log
+  truth. Dates are nullable TIMESTAMPTZ(6). No due-versus-start comparison is
+  imposed because actual starts may be after an overdue deadline. Completion
+  date/status coherence belongs to services. sortOrder defaults to zero and is
+  nonnegative, with no uniqueness or global sequencing assumption.
+- **Current vs history:** Task status/assignee are current state. Status events
+  are immutable and assignment facts are immutable except a one-time release
+  of an open period. Existing project/payment history conventions are reused;
+  separate typed task history is necessary because their parent/enums differ.
+- **Assignment deviation:** A partial unique index limits each task to one
+  unreleased history row, matching the singular current assignee. Closed
+  periods may repeat an employee but cannot be reopened/redated/rewritten.
+  This index does not synchronize current assignee, forbid historical interval
+  overlaps, or implement reassignment. Assignment reason is captured at creation;
+  release actor/reason is intentionally not a new field in this foundation.
+- **Writer boundary:** Future services must lock and atomically update the
+  current task, status event, and assignment release/new period. Initial events
+  are not automatic. Code generation, cycle prevention, assignment membership,
+  authorization and history ordering for tied timestamps remain explicit work.
+- **Retention:** Task soft deletion/CANCELLED follows operational conventions.
+  All new FKs use RESTRICT; parent updates use NO ACTION. No cascading subtree or
+  dependency deletion is configured. Task history DELETE/TRUNCATE is blocked.
+  Comments remain editable discussions, not immutable audit events.
+- **Files:** Existing file/resource metadata is retained unchanged. Task-specific
+  association is deferred rather than adding attachment/storage duplication.
+- **Scope:** No progress columns, sprint/bug/UI/UX/department-specific task
+  models, detailed time tracking, Hubstaff API, generic approval, notification,
+  task-budget coupling, AWS service, or application task-management behavior.

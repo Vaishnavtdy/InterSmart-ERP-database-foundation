@@ -1,0 +1,1306 @@
+# Step 11 — Common Task Engine
+
+You are continuing the database implementation of our internal ERP.
+
+## Current implementation status
+
+The following database steps are already completed:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Proposal Versions / Proposal Items
+6. Projects
+7. Project Scope / Business Analysis
+8. Project Files / Resources
+9. Project Budget / Budget Transactions
+10. Payments / Payment Requests
+
+The next database step is:
+
+> **Step 11 — Common Task Engine**
+
+Do not recreate, replace, rename, or remove any existing models.
+
+---
+
+# 1. Why we need a common task engine
+
+The ERP contains many workflows that require tasks.
+
+Examples:
+
+- PMO tasks
+- Project Coordinator tasks
+- UI tasks
+- UX tasks
+- Development tasks
+- QA tasks
+- Bug-fixing tasks
+- Internal follow-up tasks
+- Customer-response tasks
+- Project actions
+- Resource assignments
+- Sprint work
+
+Do NOT create separate task tables such as:
+
+```text
+ui_tasks
+ux_tasks
+dev_tasks
+qa_tasks
+pmo_tasks
+```
+
+That would create unnecessary duplication.
+
+Instead, create one reusable task engine.
+
+Conceptually:
+
+```text
+Project
+   │
+   └── Tasks
+         ├── UI
+         ├── UX
+         ├── Development
+         ├── QA
+         ├── PMO
+         └── Other
+```
+
+The department/workstream is represented through task metadata.
+
+---
+
+# 2. First inspect the existing implementation
+
+Before making changes:
+
+- Inspect the current Prisma schema.
+- Inspect all migrations.
+- Inspect `projects`.
+- Inspect `project_team`.
+- Inspect `project_actions`.
+- Inspect project scope models.
+- Inspect users/departments.
+- Inspect existing status/history models.
+- Inspect existing enums.
+- Inspect database documentation.
+
+Especially check whether `project_actions` already provides functionality that overlaps with tasks.
+
+Do not blindly create duplicate functionality.
+
+---
+
+# 3. Important distinction: Actions vs Tasks
+
+Existing:
+
+```text
+project_actions
+```
+
+is intended for high-level project actions such as:
+
+```text
+PAYMENT_FOLLOW_UP
+CLIENT_RESPONSE_REQUIRED
+CONTENT_REQUIRED
+APPROVAL_REQUIRED
+MEETING_REQUIRED
+INTERNAL_ACTION
+```
+
+The new task engine is for actual work execution.
+
+Example:
+
+### Project Action
+
+```text
+Client needs revised content.
+```
+
+### Tasks
+
+```text
+Content collection task
+↓
+UI update task
+↓
+Development task
+↓
+QA verification task
+```
+
+Do not automatically delete or replace `project_actions`.
+
+If there is a clear opportunity to reuse task functionality later, document it.
+
+---
+
+# 4. Create `tasks`
+
+Create:
+
+```text
+tasks
+```
+
+Recommended fields:
+
+```text id="s8w4e1"
+id
+project_id
+parent_task_id
+task_code
+title
+description
+task_type
+workstream
+status
+priority
+created_by_id
+assigned_to_id
+start_date
+due_date
+completed_at
+estimated_hours
+actual_hours
+sort_order
+created_at
+updated_at
+deleted_at
+```
+
+Use the existing project naming conventions.
+
+---
+
+# 5. Task ID
+
+`id`:
+
+- UUID
+- Primary key
+
+---
+
+# 6. Project relationship
+
+A task should normally belong to a project.
+
+```text id="b3n7v2"
+tasks.project_id
+    → projects.id
+```
+
+This allows project-level task tracking.
+
+Do not create tasks directly tied to customers without a project unless the existing architecture has a strong business reason.
+
+---
+
+# 7. Parent task
+
+Create:
+
+```text id="q4p9m2"
+parent_task_id
+```
+
+nullable.
+
+This allows hierarchical tasks.
+
+Example:
+
+```text id="8c4y1d"
+Website Development
+   ├── Homepage
+   ├── About Page
+   ├── Contact Page
+   └── Admin Panel
+```
+
+A task may therefore have child tasks.
+
+Relationship:
+
+```text id="n7j5x3"
+tasks.parent_task_id
+    → tasks.id
+```
+
+Do not implement unlimited complex dependency logic yet.
+
+---
+
+# 8. Task code
+
+Create:
+
+```text id="w3k6v8"
+task_code
+```
+
+Make it unique.
+
+Example:
+
+```text id="6h2m9r"
+TASK-2026-000001
+```
+
+The exact code generation should happen in the NestJS service.
+
+Do not implement database-side string generation.
+
+---
+
+# 9. Task title and description
+
+Required:
+
+```text id="r5p1y7"
+title
+```
+
+Optional:
+
+```text id="u8q2m4"
+description
+```
+
+Description should support sufficient text for task requirements/instructions.
+
+Do not use JSON for normal descriptions.
+
+---
+
+# 10. Task type
+
+Create:
+
+```text id="j7v3p6"
+task_type
+```
+
+Recommended enum:
+
+```text id="g5m2x9"
+GENERAL
+DESIGN
+DEVELOPMENT
+TESTING
+BUG_FIX
+REVIEW
+RESEARCH
+DOCUMENTATION
+MEETING
+FOLLOW_UP
+APPROVAL
+DEPLOYMENT
+OTHER
+```
+
+Keep this generic.
+
+Do not create:
+
+```text id="e7r2k1"
+REACT_TASK
+FIGMA_TASK
+POSTGRES_TASK
+```
+
+Those are implementation details, not task types.
+
+---
+
+# 11. Workstream
+
+Create a separate enum:
+
+```text id="c4w8n2"
+workstream
+```
+
+Recommended:
+
+```text id="v9m5q1"
+PMO
+BUSINESS_ANALYSIS
+UI
+UX
+DEVELOPMENT
+QA
+PROJECT_MANAGEMENT
+SALES
+ACCOUNTS
+HR
+OTHER
+```
+
+This is important.
+
+`task_type` answers:
+
+> What kind of work is this?
+
+`workstream` answers:
+
+> Which business/production stream owns this work?
+
+Example:
+
+```text id="p2k7s4"
+task_type = BUG_FIX
+workstream = DEVELOPMENT
+```
+
+Another:
+
+```text id="h8n3y6"
+task_type = REVIEW
+workstream = QA
+```
+
+---
+
+# 12. Task status
+
+Create:
+
+```text id="x7m4p2"
+task_status
+```
+
+Recommended values:
+
+```text id="m3q8v1"
+TODO
+ASSIGNED
+IN_PROGRESS
+BLOCKED
+IN_REVIEW
+REWORK
+COMPLETED
+CANCELLED
+```
+
+Do not add dozens of department-specific statuses.
+
+Department-specific workflow can later be handled using domain tables/statuses where required.
+
+---
+
+# 13. Task priority
+
+Create:
+
+```text id="k5w9r3"
+task_priority
+```
+
+Values:
+
+```text id="n2p6y8"
+LOW
+MEDIUM
+HIGH
+URGENT
+```
+
+If an existing project priority enum is already appropriate and reusable, reuse it rather than creating a duplicate enum.
+
+---
+
+# 14. Task assignment
+
+At minimum:
+
+```text id="u4m7c2"
+assigned_to_id
+```
+
+nullable.
+
+Reference:
+
+```text id="q9v2j6"
+users.id
+```
+
+Why nullable?
+
+A task may initially be:
+
+```text id="t6n3w8"
+TODO
+```
+
+and assigned later.
+
+---
+
+# 15. Created by
+
+Create:
+
+```text id="r2k8p5"
+created_by_id
+```
+
+required.
+
+Reference:
+
+```text id="j5v9m1"
+users.id
+```
+
+This allows the system to know who created the task.
+
+---
+
+# 16. Dates
+
+Support:
+
+```text id="e7x3q9"
+start_date
+due_date
+completed_at
+```
+
+Recommended:
+
+- `start_date` nullable
+- `due_date` nullable
+- `completed_at` nullable
+
+Do not force every task to have a due date.
+
+---
+
+# 17. Estimated and actual hours
+
+Create:
+
+```text id="m8q4v6"
+estimated_hours
+actual_hours
+```
+
+Use an appropriate Decimal type.
+
+Do NOT use integer-only fields because future tasks may require values such as:
+
+```text id="x3n9p2"
+1.5 hours
+2.25 hours
+0.5 hours
+```
+
+Important:
+
+These fields are task-level estimates/summary values.
+
+They are NOT the source of truth for future time tracking.
+
+A future time-tracking system may contain detailed work logs.
+
+---
+
+# 18. Sort order
+
+Create:
+
+```text id="c7m2v8"
+sort_order
+```
+
+nullable or with a sensible default.
+
+This allows the UI to order tasks within:
+
+- project
+- parent task
+- sprint
+- workstream
+
+Do not use it as the primary task sequencing mechanism.
+
+---
+
+# 19. Task dependencies
+
+Do not add dependency columns such as:
+
+```text id="p5k9w1"
+depends_on_task_id
+blocked_by_task_id
+```
+
+directly to `tasks`.
+
+A task can depend on multiple tasks.
+
+If dependency management is needed, create a separate model.
+
+Create:
+
+```text id="n4x8q6"
+task_dependencies
+```
+
+Recommended:
+
+```text id="w7m3p9"
+id
+task_id
+depends_on_task_id
+dependency_type
+created_at
+```
+
+---
+
+# 20. Dependency type
+
+Create:
+
+```text id="y2v6k8"
+dependency_type
+```
+
+Recommended:
+
+```text id="h4p9m3"
+BLOCKS
+RELATED
+```
+
+Keep this minimal.
+
+Do not implement a complete project scheduling engine yet.
+
+---
+
+# 21. Dependency constraints
+
+A task should not depend on itself.
+
+Conceptually:
+
+```text id="r8q3m1"
+task_id != depends_on_task_id
+```
+
+If this cannot be cleanly enforced through the current Prisma/PostgreSQL setup, enforce it in the NestJS service and document it.
+
+Prevent duplicate dependency records using an appropriate unique constraint:
+
+```text id="m5v7x2"
+task_id + depends_on_task_id + dependency_type
+```
+
+if compatible with the business rules.
+
+---
+
+# 22. Task comments
+
+Tasks will eventually need discussions.
+
+Create:
+
+```text id="c9n4w7"
+task_comments
+```
+
+Recommended:
+
+```text id="x2p6m8"
+id
+task_id
+user_id
+comment
+created_at
+updated_at
+```
+
+This is different from:
+
+```text id="v7q3k1"
+project_comments
+```
+
+because task-level discussions should stay attached to the actual work item.
+
+---
+
+# 23. Task status history
+
+Create:
+
+```text id="q6m2x9"
+task_status_history
+```
+
+Recommended:
+
+```text id="n8v4p3"
+id
+task_id
+from_status
+to_status
+changed_by_id
+reason
+created_at
+```
+
+This is important for reporting.
+
+Example:
+
+```text id="w5k7r2"
+TODO
+↓
+ASSIGNED
+↓
+IN_PROGRESS
+↓
+IN_REVIEW
+↓
+REWORK
+↓
+IN_REVIEW
+↓
+COMPLETED
+```
+
+The current `tasks.status` represents current state.
+
+The history table represents how the task reached that state.
+
+---
+
+# 24. Task assignee history
+
+Tasks may move between employees.
+
+Example:
+
+```text id="m3x7q9"
+Developer A
+↓
+Developer B
+↓
+Developer C
+```
+
+Do not overwrite assignment history.
+
+Create:
+
+```text id="p8n4w6"
+task_assignments
+```
+
+Recommended:
+
+```text id="k2v9m5"
+id
+task_id
+assigned_to_id
+assigned_by_id
+assigned_at
+released_at
+reason
+```
+
+This provides assignment history.
+
+Current assignment remains:
+
+```text id="f7q3x1"
+tasks.assigned_to_id
+```
+
+while historical assignments are stored separately.
+
+---
+
+# 25. Task attachments
+
+Do not create binary/file columns in tasks.
+
+Use the existing Step 8 file system.
+
+The future implementation can associate files with tasks.
+
+Before creating a task-specific attachment table, inspect whether the existing `files` / `project_resources` design can be extended cleanly.
+
+Do not duplicate MinIO metadata.
+
+For this step, avoid introducing a second storage system.
+
+---
+
+# 26. Task relationships
+
+The conceptual model should be:
+
+```text id="u7p4m2"
+Project
+   │
+   └── Tasks
+         │
+         ├── Parent Task
+         │      └── Child Tasks
+         │
+         ├── Assignee
+         ├── Comments
+         ├── Status History
+         ├── Assignment History
+         └── Dependencies
+```
+
+---
+
+# 27. Important design rule: do not create sprint tables yet
+
+Development and UX will eventually require:
+
+- sprints
+- sprint planning
+- sprint approval
+- sprint capacity
+- sprint dates
+
+Do NOT implement those in Step 11.
+
+The common task engine comes first.
+
+Later domain-specific sprint models can reference `tasks`.
+
+---
+
+# 28. Important design rule: do not create QA bug tables yet
+
+QA will eventually require:
+
+- bugs
+- severity
+- reproducibility
+- screenshots
+- browser/device
+- verification
+- reopen
+- resolution
+
+Do NOT create the QA bug system now.
+
+Later:
+
+```text
+QA Bug
+   ↓
+Task
+```
+
+or another carefully designed relationship can be introduced.
+
+---
+
+# 29. Important design rule: do not create UI/UX models yet
+
+Do not create:
+
+```text id="v6p2m9"
+ui_pages
+ui_sections
+ux_sprints
+ux_efforts
+```
+
+Those belong to later steps.
+
+The task engine should remain generic.
+
+---
+
+# 30. Important design rule: do not create development-specific models yet
+
+Do not create:
+
+```text id="c8w3p1"
+development_sprints
+development_tasks
+developer_assignments
+```
+
+unless an existing implementation already contains equivalent structures.
+
+The common task engine should be the foundation.
+
+---
+
+# 31. Task progress
+
+Do NOT add:
+
+```text id="m7q4v2"
+progress_percentage
+```
+
+to tasks.
+
+Task progress should be derived from status or future time/progress tracking.
+
+Likewise, do not store project progress on `projects`.
+
+---
+
+# 32. Task estimates vs budget
+
+Do not directly connect:
+
+```text id="q2x7n5"
+estimated_hours
+```
+
+to:
+
+```text id="w9m4p6"
+budget_transactions
+```
+
+in this step.
+
+Budget and task execution are related business concepts but should not be coupled at the database level prematurely.
+
+Future reporting can combine:
+
+```text task hours
++
+resource cost
++
+budget
+```
+
+through services.
+
+---
+
+# 33. Soft deletion
+
+Follow existing conventions.
+
+If `projects` and other operational entities use:
+
+```text id="v5n2m8"
+deleted_at
+```
+
+then tasks can use the same pattern.
+
+Do not physically delete task history.
+
+If a task is no longer valid, prefer:
+
+```text id="x7q3m1"
+CANCELLED
+```
+
+and preserve the record.
+
+---
+
+# 34. Indexes
+
+Add useful indexes.
+
+### `tasks`
+
+At minimum:
+
+```text id="k9w3p7"
+project_id
+parent_task_id
+assigned_to_id
+created_by_id
+status
+priority
+workstream
+task_type
+due_date
+created_at
+```
+
+Useful composite indexes may include:
+
+```text id="m4x8q2"
+project_id + status
+
+project_id + workstream
+
+assigned_to_id + status
+
+project_id + due_date
+```
+
+Only create them if consistent with expected query patterns.
+
+### `task_dependencies`
+
+```text id="p7n2v6"
+task_id
+depends_on_task_id
+```
+
+### `task_comments`
+
+```text id="c4m8x1"
+task_id
+created_at
+```
+
+### `task_status_history`
+
+```text id="w2q6n9"
+task_id
+created_at
+changed_by_id
+```
+
+### `task_assignments`
+
+```text id="y5p3m7"
+task_id
+assigned_to_id
+assigned_at
+```
+
+Do not create excessive indexes.
+
+---
+
+# 35. Foreign keys
+
+Expected relationships:
+
+```text id="n6v2p8"
+tasks.project_id
+    → projects.id
+
+tasks.parent_task_id
+    → tasks.id
+
+tasks.created_by_id
+    → users.id
+
+tasks.assigned_to_id
+    → users.id
+
+task_dependencies.task_id
+    → tasks.id
+
+task_dependencies.depends_on_task_id
+    → tasks.id
+
+task_comments.task_id
+    → tasks.id
+
+task_comments.user_id
+    → users.id
+
+task_status_history.task_id
+    → tasks.id
+
+task_status_history.changed_by_id
+    → users.id
+
+task_assignments.task_id
+    → tasks.id
+
+task_assignments.assigned_to_id
+    → users.id
+
+task_assignments.assigned_by_id
+    → users.id
+```
+
+Use the existing Prisma relation naming conventions.
+
+---
+
+# 36. Avoid circular cascade problems
+
+Be careful with:
+
+```text
+tasks.parent_task_id
+```
+
+and:
+
+```text
+task_dependencies
+```
+
+Do not configure destructive cascading behavior that could accidentally delete large task trees.
+
+Use safe delete/update behavior consistent with the existing schema.
+
+Document the chosen behavior.
+
+---
+
+# 37. No notification system
+
+Do not implement:
+
+- email notifications
+- Socket.IO notifications
+- task reminders
+- push notifications
+- overdue alerts
+
+Those will be handled later.
+
+The task data should simply support future notification logic.
+
+---
+
+# 38. No time tracking system
+
+Do not create:
+
+```text id="x4m8q2"
+time_entries
+timesheets
+hubstaff_logs
+```
+
+in this step.
+
+The `estimated_hours` and `actual_hours` fields are only task summary fields.
+
+Detailed time tracking will be designed later, especially because Hubstaff integration is part of the ERP requirements.
+
+---
+
+# 39. No generic approval engine
+
+Do not create:
+
+```text id="p7w3n9"
+approval_requests
+approval_steps
+approval_actions
+```
+
+yet.
+
+Tasks can have:
+
+```text id="k2v8m5"
+IN_REVIEW
+```
+
+but formal approval workflows will be implemented later.
+
+---
+
+# 40. Migration
+
+Create a new incremental Prisma migration.
+
+Do NOT:
+
+- reset the database
+- delete previous migrations
+- modify previous migrations
+- drop existing tables
+- recreate the Prisma schema
+- remove existing relations
+
+Only add the structures required for Step 11.
+
+---
+
+# 41. Validation
+
+Run:
+
+```bash id="g4m9x2"
+npx prisma validate
+```
+
+Then use the project's normal commands to:
+
+- generate Prisma Client
+- run migration
+- run tests
+- run type checking
+
+Verify:
+
+- self-referencing task relation works
+- dependency relations work
+- all foreign keys are correct
+- enums compile
+- existing models remain valid
+- migrations are incremental
+- no existing migration was modified
+
+---
+
+# 42. Documentation
+
+Update:
+
+```text id="u8p3m5"
+/docs/database/README.md
+/docs/database/ERD.md
+/docs/database/DECISIONS.md
+```
+
+Document:
+
+### Common task architecture
+
+```text
+Project
+   ↓
+Tasks
+   ├── Workstream
+   ├── Type
+   ├── Assignee
+   ├── Comments
+   ├── Dependencies
+   ├── Status History
+   └── Assignment History
+```
+
+Document:
+
+> UI, UX, Development, QA, PMO and other workflows will reuse the common task engine rather than creating separate task tables.
+
+Document:
+
+> `project_actions` and `tasks` are different concepts. Project actions represent high-level project follow-ups; tasks represent executable work.
+
+Document:
+
+> Detailed time tracking and sprint management are intentionally deferred.
+
+---
+
+# 43. Final verification report
+
+After implementation report:
+
+## Models created
+
+```text id="v2m8q5"
+tasks
+task_dependencies
+task_comments
+task_status_history
+task_assignments
+```
+
+Only create the models that are actually necessary after inspecting the existing schema.
+
+## Enums created
+
+```text id="n7x3p9"
+task type
+workstream
+task status
+task priority
+dependency type
+```
+
+Reuse existing enums where appropriate.
+
+## Relationships
+
+List all relationships.
+
+## Indexes
+
+List important indexes.
+
+## Constraints
+
+List important unique constraints and foreign keys.
+
+## Migration
+
+Report:
+
+```text id="k4w8m2"
+migration name
+migration status
+```
+
+## Validation
+
+Report:
+
+```text id="q9p3v6"
+Prisma validation
+migration result
+Prisma Client generation
+tests/type checks
+```
+
+## Documentation
+
+List updated documentation files.
+
+## Design decisions
+
+Explain any deviation from this specification.
+
+---
+
+# Critical rules
+
+1. Do not recreate previous models.
+2. Do not modify previous migrations.
+3. Do not reset the database.
+4. Use one reusable task engine.
+5. Do not create separate UI/UX/Dev/QA task tables.
+6. Preserve task status history.
+7. Preserve assignment history.
+8. Support parent/child tasks.
+9. Support multiple task dependencies.
+10. Do not create sprint systems yet.
+11. Do not create QA bug systems yet.
+12. Do not create detailed time tracking yet.
+13. Do not create the generic approval engine yet.
+14. Do not duplicate the existing project action system.
+15. Do not store task progress percentage as source-of-truth data.
+16. Do not introduce AWS.
+17. Follow the existing Prisma architecture.
+18. Inspect the current implementation before modifying it.
+19. Keep the migration incremental and production-safe.
+
+# STOP CONDITION
+
+After completing **Step 11 — Common Task Engine**, stop.
+
+Do not automatically continue to Step 12.
+
+Wait for the next instruction.

@@ -67,6 +67,10 @@ can receive multiple payments or a payment can be recorded without a request.
 Calculate paid/remaining from confirmed receipts; preserve overpayments and
 financial history rather than deleting receipts.
 
+UI, UX, Development, QA, PMO and other workstreams share one common task engine.
+Project actions are high-level follow-ups; tasks represent executable work.
+Detailed time tracking and sprint management are intentionally deferred.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

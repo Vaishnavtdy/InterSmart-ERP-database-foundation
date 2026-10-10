@@ -90,6 +90,12 @@ model User {
   recordedPayments            Payment[]
   paymentStatusChanges        PaymentStatusHistory[]
   paymentRequestStatusChanges PaymentRequestStatusHistory[]
+  createdTasks                Task[]                        @relation("TaskCreator")
+  assignedTasks               Task[]                        @relation("TaskAssignee")
+  taskComments                TaskComment[]
+  taskStatusChanges           TaskStatusHistory[]
+  receivedTaskAssignments     TaskAssignment[]              @relation("TaskAssignmentAssignee")
+  issuedTaskAssignments       TaskAssignment[]              @relation("TaskAssignmentAuthor")
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -487,6 +493,7 @@ model Project {
   budget               ProjectBudget?
   paymentRequests      PaymentRequest[]
   payments             Payment[]
+  tasks                Task[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -1026,4 +1033,165 @@ model PaymentRequestStatusHistory {
   @@index([paymentRequestId, createdAt])
   @@index([changedById])
   @@map("payment_request_status_history")
+}
+
+enum TaskType {
+  GENERAL
+  DESIGN
+  DEVELOPMENT
+  TESTING
+  BUG_FIX
+  REVIEW
+  RESEARCH
+  DOCUMENTATION
+  MEETING
+  FOLLOW_UP
+  APPROVAL
+  DEPLOYMENT
+  OTHER
+}
+
+enum TaskWorkstream {
+  PMO
+  BUSINESS_ANALYSIS
+  UI
+  UX
+  DEVELOPMENT
+  QA
+  PROJECT_MANAGEMENT
+  SALES
+  ACCOUNTS
+  HR
+  OTHER
+}
+
+enum TaskStatus {
+  TODO
+  ASSIGNED
+  IN_PROGRESS
+  BLOCKED
+  IN_REVIEW
+  REWORK
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskDependencyType {
+  BLOCKS
+  RELATED
+}
+
+model Task {
+  id             String              @id @default(uuid()) @db.Uuid
+  projectId      String              @map("project_id") @db.Uuid
+  parentTaskId   String?             @map("parent_task_id") @db.Uuid
+  taskCode       String              @unique @map("task_code") @db.VarChar(32)
+  title          String              @db.VarChar(255)
+  description    String?             @db.Text
+  taskType       TaskType            @default(GENERAL) @map("task_type")
+  workstream     TaskWorkstream      @default(OTHER)
+  status         TaskStatus          @default(TODO)
+  priority       ProjectPriority     @default(MEDIUM)
+  createdById    String              @map("created_by_id") @db.Uuid
+  assignedToId   String?             @map("assigned_to_id") @db.Uuid
+  startDate      DateTime?           @map("start_date") @db.Timestamptz(6)
+  dueDate        DateTime?           @map("due_date") @db.Timestamptz(6)
+  completedAt    DateTime?           @map("completed_at") @db.Timestamptz(6)
+  estimatedHours Decimal?            @map("estimated_hours") @db.Decimal(10, 2)
+  actualHours    Decimal?            @map("actual_hours") @db.Decimal(10, 2)
+  sortOrder      Int                 @default(0) @map("sort_order")
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?           @map("deleted_at") @db.Timestamptz(6)
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  parentTask     Task?               @relation("TaskHierarchy", fields: [projectId, parentTaskId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  childTasks     Task[]              @relation("TaskHierarchy")
+  createdBy      User                @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo     User?               @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  dependencies   TaskDependency[]    @relation("TaskDependencyOwner")
+  dependentTasks TaskDependency[]    @relation("TaskDependencyTarget")
+  comments       TaskComment[]
+  statusHistory  TaskStatusHistory[]
+  assignments    TaskAssignment[]
+
+  // Composite target key keeps children in their parent's project.
+  @@unique([projectId, id])
+  @@index([projectId, status])
+  @@index([parentTaskId])
+  @@index([assignedToId, status])
+  @@index([createdById])
+  @@index([status, deletedAt])
+  @@index([priority])
+  @@index([workstream])
+  @@index([taskType])
+  @@index([dueDate])
+  @@index([createdAt])
+  @@map("tasks")
+}
+
+model TaskDependency {
+  id              String             @id @default(uuid()) @db.Uuid
+  taskId          String             @map("task_id") @db.Uuid
+  dependsOnTaskId String             @map("depends_on_task_id") @db.Uuid
+  dependencyType  TaskDependencyType @default(BLOCKS) @map("dependency_type")
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  task            Task               @relation("TaskDependencyOwner", fields: [taskId], references: [id], onDelete: Restrict)
+  dependsOnTask   Task               @relation("TaskDependencyTarget", fields: [dependsOnTaskId], references: [id], onDelete: Restrict)
+
+  @@unique([taskId, dependsOnTaskId, dependencyType])
+  @@index([dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  comment   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("task_comments")
+}
+
+model TaskStatusHistory {
+  id          String      @id @default(uuid()) @db.Uuid
+  taskId      String      @map("task_id") @db.Uuid
+  fromStatus  TaskStatus? @map("from_status")
+  toStatus    TaskStatus  @map("to_status")
+  changedById String      @map("changed_by_id") @db.Uuid
+  reason      String?     @db.Text
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  task        Task        @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  changedBy   User        @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("task_status_history")
+}
+
+model TaskAssignment {
+  id           String    @id @default(uuid()) @db.Uuid
+  taskId       String    @map("task_id") @db.Uuid
+  assignedToId String    @map("assigned_to_id") @db.Uuid
+  assignedById String    @map("assigned_by_id") @db.Uuid
+  assignedAt   DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  releasedAt   DateTime? @map("released_at") @db.Timestamptz(6)
+  reason       String?   @db.Text
+  task         Task      @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  assignedTo   User      @relation("TaskAssignmentAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  assignedBy   User      @relation("TaskAssignmentAuthor", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  // SQL partial uniqueness permits only one unreleased assignment per task.
+  @@index([taskId, releasedAt])
+  @@index([assignedToId, assignedAt])
+  @@index([assignedById])
+  @@index([assignedAt])
+  @@map("task_assignments")
 }

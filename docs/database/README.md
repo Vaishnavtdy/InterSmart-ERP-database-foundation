@@ -27,12 +27,24 @@ pnpm --filter @workspace/database run db:migrate:status
 reviewed schema change. `db:migrate:deploy` applies committed migrations and is
 intended for controlled deployment workflows.
 
-## Current scope
+## Employee foundation
 
-This foundation intentionally has no domain models yet. No initial migration
-has been created or applied; an empty migration would not establish a useful
-database schema. Add models and the first migration only when the first data
-module is explicitly approved.
+The approved employee foundation contains `users`, `departments`, and
+`employee_profiles`. The nine department codes are seeded by the idempotent
+`db:seed` command. No roles or other ERP modules are included.
+
+For a new database, create and apply a development migration with:
+
+```sh
+pnpm --filter @workspace/database run db:migrate:dev -- --name employee-foundation
+pnpm --filter @workspace/database run db:seed
+```
+
+The seed only inserts missing departments and does not create user accounts.
+
+`users.deleted_at` is a nullable soft-delete marker. Employee codes and email
+addresses remain unique even after soft deletion so historical identifiers are
+not reused.
 
 The existing Drizzle scaffold under `lib/db/` is preserved and has not been
 converted or deleted in this step. New ERP schema work belongs in

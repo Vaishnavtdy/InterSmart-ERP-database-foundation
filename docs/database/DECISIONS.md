@@ -1,14 +1,35 @@
 # Database decisions
 
-## Foundation remains model-free
+## Employee foundation scope
 
-- **Decision:** Set up Prisma and PostgreSQL without adding business or
-  authentication models in this step.
-- **Reason:** The database is being built incrementally, and no first domain
-  module was approved. Adding speculative tables would exceed the selected
-  foundation scope.
-- **Migration:** No initial migration is created or applied until an approved
-  model produces a meaningful schema change.
+- **Decision:** The first schema migration contains only `users`, `departments`,
+  and `employee_profiles`. Roles and other ERP modules remain out of scope.
+- **Reason:** The database is implemented incrementally, one approved module
+  at a time.
+- **Department codes:** Use a PostgreSQL-backed Prisma enum for the nine
+  controlled department codes and seed one department row per code.
+
+## User lifecycle and status
+
+- **Decision:** User status is `ACTIVE`, `INACTIVE`, or `SUSPENDED`, defaulting
+  to `ACTIVE`. `deleted_at` is nullable and supports soft deletion.
+- **Reason:** These statuses cover account availability without introducing
+  employment or approval workflows that were not requested. Unique employee
+  codes and email addresses are retained after soft deletion.
+
+## Employee profile boundary
+
+- **Decision:** Store optional job title, work location, and short biography in
+  `employee_profiles`; keep credentials and login state in `users`.
+- **Reason:** This keeps authentication data separate from supplemental
+  employee information while avoiding speculative sensitive personal fields.
+
+## Employee relationships
+
+- **Decision:** Each user belongs to one department. A nullable self-referencing
+  manager relation supports reporting lines. Each user may have one profile.
+- **Reason:** Department assignment is required for the employee foundation;
+  manager and profile records may be added later.
 
 ## Single-organization boundary
 

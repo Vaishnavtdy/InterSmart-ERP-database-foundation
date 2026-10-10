@@ -36,11 +36,15 @@ single-organization PostgreSQL database.
 
 - Single organization only: no organizations table or tenant/organization IDs.
 - The approved employee foundation contains users, departments, and employee profiles only.
+- Customer records are external clients, not authenticating users; they have no role or permission links.
 - Existing `lib/db/` Drizzle scaffold is preserved; new ERP schema changes belong in `packages/database`.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+The internal ERP is intended to manage the complete InterSmart business
+lifecycle, including external customers, sales, projects, accounts, PMO, UI,
+UX, development, QA, and HR. Implement each module only when explicitly
+requested. Internal employees are users; external clients are customers.
 
 ## User preferences
 

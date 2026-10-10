@@ -86,3 +86,36 @@ The existing Drizzle scaffold under `lib/db/` is preserved and has not been
 converted or deleted in this step. New ERP schema work belongs in
 `packages/database/prisma/schema.prisma`. Do not run the legacy Drizzle
 schema-push commands against the ERP database.
+
+## Customers (Database Step 3)
+
+Migration: `20261010100740_customers`.
+
+External customers do not authenticate. Their contacts are not employee users
+and have no role or permission links. No APIs or frontend screens are included.
+
+| Table | Fields |
+| --- | --- |
+| `customers` | UUID `id`; unique `customer_code`; required `company_name`; nullable `website`, `industry`, `country`, `state`, `city`, `address`, `source`; `status`; nullable `assigned_salesperson_id`; `created_at`, `updated_at`; nullable `deleted_at` |
+| `customer_contacts` | UUID `id`; required `customer_id`, `first_name`; nullable `last_name`, `email`, `phone`, `designation`; `is_primary`, `status`; `created_at`, `updated_at` |
+
+- Customer status: `ACTIVE`, `INACTIVE`, `PROSPECT` (default), `BLOCKED`.
+- Contact status: `ACTIVE` (default), `INACTIVE`; `is_primary` defaults to false.
+- Native UUID IDs and `TIMESTAMPTZ(6)` timestamps follow the employee foundation.
+- A nullable salesperson references an existing user. Hard-deleting that user
+  clears assignment without deleting customers.
+- A customer can have many contacts and zero or one primary contact. A
+  PostgreSQL partial unique index on `customer_id WHERE is_primary = true`
+  enforces this even for concurrent writes. This SQL-only index must be retained
+  when reviewing future migrations; do not replace it with an unconditional
+  unique constraint on `customer_id`, which would allow only one contact total.
+- Hard-deleting a customer cascades to its contacts; normal customer removal
+  uses `deleted_at` and retains contacts. Inactive contacts marked primary still
+  occupy the primary slot until explicitly demoted.
+- Indexes cover unique customer code, company name, `(status, deleted_at)`,
+  salesperson assignment, contact customer lookup, contact email, and phone.
+  Contact email and phone are deliberately not unique.
+- The existing seed remains department-only; this module requires no seed data.
+
+**Repository observation:** Step 2 roles/permissions models and migration were
+not present when Step 3 was implemented. They have not been recreated or added.

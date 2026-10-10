@@ -1,0 +1,172 @@
+You are continuing development of the InterSmart ERP database.
+
+IMPORTANT:
+Steps 1 and 2 have already been implemented.
+
+Existing modules:
+- Users
+- Departments
+- Employee Profiles
+- Roles
+- Permissions
+- User Roles
+- Role Permissions
+
+DO NOT recreate or replace those modules.
+
+This ERP is used internally by InterSmart employees, but the ERP manages the COMPLETE business lifecycle, including external customers, sales, projects, accounts, PMO, UI, UX, development, QA and HR.
+
+Therefore:
+
+- Internal employees are represented by `users`.
+- External clients are represented by `customers`.
+- Customers do NOT authenticate into this ERP.
+- Do NOT create customer login/authentication.
+- Do NOT connect customers to roles or permissions.
+
+TASK:
+
+Implement DATABASE STEP 3: Customers.
+
+Before making changes:
+
+1. Inspect the existing Prisma schema.
+2. Inspect existing migrations.
+3. Inspect existing database documentation.
+4. Understand the relationships already implemented.
+5. Do not modify existing approved models unless required.
+
+Create these models:
+
+1. Customer
+2. CustomerContact
+
+CUSTOMER
+
+Fields:
+
+- id UUID primary key
+- customerCode unique
+- companyName
+- website nullable
+- industry nullable
+- country nullable
+- state nullable
+- city nullable
+- address nullable
+- source nullable
+- status
+- assignedSalespersonId nullable
+- createdAt
+- updatedAt
+- deletedAt nullable
+
+Customer status should support:
+
+ACTIVE
+INACTIVE
+PROSPECT
+BLOCKED
+
+`assignedSalespersonId` must reference the existing `User` model.
+
+CUSTOMER CONTACT
+
+Fields:
+
+- id UUID primary key
+- customerId
+- firstName
+- lastName nullable
+- email nullable
+- phone nullable
+- designation nullable
+- isPrimary
+- status
+- createdAt
+- updatedAt
+
+Relationships:
+
+User
+  ↓
+assignedSalesperson
+  ↓
+Customer
+  ↓
+CustomerContact[]
+
+A customer can have multiple contacts.
+
+A customer should have exactly zero or one primary contact where PostgreSQL constraints can safely enforce this.
+
+DATABASE REQUIREMENTS:
+
+- PostgreSQL
+- Prisma
+- UUID primary keys
+- proper foreign keys
+- appropriate indexes
+- unique customerCode
+- timestamps
+- Decimal is NOT required in this module
+- no JSONB unless genuinely required
+- no unnecessary fields
+- no organizationId
+- no tenantId
+- no AWS dependencies
+
+INDEXES:
+
+Consider indexes for:
+
+- customerCode
+- companyName
+- status
+- assignedSalespersonId
+- customerContact.email
+- customerContact.phone
+
+IMPORTANT:
+
+Do not create:
+- Leads
+- Proposals
+- Projects
+- Payments
+- Budgets
+- Tasks
+
+Those will be implemented in later steps.
+
+Do not build API endpoints yet.
+
+Do not build frontend screens yet.
+
+Do not reset the database.
+
+Do not delete existing migrations.
+
+After implementation:
+
+1. Run Prisma format.
+2. Run Prisma validate.
+3. Create the appropriate migration.
+4. Verify the migration.
+5. Update `/docs/database/README.md`.
+6. Update `/docs/database/ERD.md`.
+7. Update `/docs/database/DECISIONS.md`.
+
+Then report:
+
+- models created
+- fields
+- relationships
+- indexes
+- migration name
+- Prisma validation result
+- any design decisions
+
+STOP.
+
+Wait for my next instruction before implementing Step 4.

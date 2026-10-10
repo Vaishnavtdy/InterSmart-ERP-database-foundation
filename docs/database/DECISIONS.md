@@ -73,3 +73,60 @@
 - **Reason:** Avoid deleting or converting existing project work in an
   employee-database-only step. The two locations must not be treated as competing
   sources of truth; new ERP schema changes belong in the Prisma package.
+
+## Customer boundary and preserved models
+
+- **Migration:** `20261010100740_customers`, applied transactionally with
+  additive tables, enums, indexes, and foreign keys only.
+- **Decision:** Add only `Customer` and `CustomerContact`. External customers
+  and contacts have no authentication or role/permission relationships.
+- **Reason:** Employee users access the internal ERP; external clients are
+  business records managed by employees, not ERP accounts.
+- **Existing model change:** `User.assignedCustomers` is only a Prisma
+  back-reference required for the new relationship; no existing user columns
+  or constraints are changed.
+- **Repository observation:** The supplied brief stated that Step 2 was
+  implemented, but its roles/permissions models and migration were absent
+  from the inspected schema, repository, and matching database. Step 3 does
+  not depend on those tables, and they were not recreated.
+
+## Customer and contact lifecycle
+
+- **Decision:** Customer status is `ACTIVE`, `INACTIVE`, `PROSPECT`, or
+  `BLOCKED`, defaulting to `PROSPECT`. Contact status is `ACTIVE` or
+  `INACTIVE`, defaulting to `ACTIVE`.
+- **Reason:** Newly captured companies may not yet be active customers;
+  individual contacts only need availability status at this stage.
+- **Deletion:** Customers support soft deletion. Hard deletion cascades to
+  contacts, while deleting an assigned employee clears the nullable assignment.
+  Soft deletion does not automatically remove or change contacts.
+- **Assignment:** The FK ensures that a salesperson is an existing employee.
+  No department restriction or authentication workflow is added.
+
+## At most one primary contact
+
+- **Decision:** Use a PostgreSQL partial unique index on contact `customer_id`
+  where `is_primary = true`, maintained in migration SQL.
+- **Reason:** An unconditional unique FK would incorrectly limit a customer
+  to one contact. A partial unique index allows multiple non-primary contacts
+  and prevents competing primary contacts atomically, including concurrent
+  writes.
+- **Scope:** Zero primary contacts is valid. Inactive primary contacts still
+  reserve the slot; switching primary contact must demote the old contact
+  before promoting another, within one transaction.
+- **Migration review:** Prisma does not represent this index in the schema
+  without additional preview configuration. Preserve the SQL-only index in
+  future migrations and verify it directly in PostgreSQL.
+
+## Customer data and query indexes
+
+- **Decision:** Use only requested scalar fields, UUID foreign keys, and
+  timezone-aware timestamps. No Decimal, JSONB, tenancy keys, or new seed
+  records are needed.
+- **Reason:** There are no monetary calculations or unstructured payloads in
+  this module. Company code is unique; contacts may legitimately share email
+  addresses or phone numbers, so those fields are indexed but not unique.
+- **Indexes:** Company name supports exact lookups and ordering, not
+  arbitrary substring search. `(status, deleted_at)` supports lifecycle
+  filtering; salesperson and contact-customer indexes support relationship
+  queries. Email and phone indexes support exact contact lookups.

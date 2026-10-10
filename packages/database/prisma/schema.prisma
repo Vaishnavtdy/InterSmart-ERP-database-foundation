@@ -37,25 +37,26 @@ model Department {
 }
 
 model User {
-  id            String           @id @default(uuid()) @db.Uuid
-  employeeCode  String           @unique @map("employee_code") @db.VarChar(32)
-  email         String           @unique @db.VarChar(320)
-  passwordHash  String           @map("password_hash") @db.VarChar(255)
-  firstName     String           @map("first_name") @db.VarChar(100)
-  lastName      String           @map("last_name") @db.VarChar(100)
-  phone         String?          @db.VarChar(32)
-  departmentId  String           @map("department_id") @db.Uuid
-  managerId     String?          @map("manager_id") @db.Uuid
-  status        UserStatus       @default(ACTIVE)
-  joiningDate   DateTime         @map("joining_date") @db.Timestamptz(6)
-  lastLoginAt   DateTime?        @map("last_login_at") @db.Timestamptz(6)
-  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt     DateTime?        @map("deleted_at") @db.Timestamptz(6)
-  department    Department       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  manager       User?            @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
-  directReports User[]           @relation("UserManager")
-  profile       EmployeeProfile?
+  id                String           @id @default(uuid()) @db.Uuid
+  employeeCode      String           @unique @map("employee_code") @db.VarChar(32)
+  email             String           @unique @db.VarChar(320)
+  passwordHash      String           @map("password_hash") @db.VarChar(255)
+  firstName         String           @map("first_name") @db.VarChar(100)
+  lastName          String           @map("last_name") @db.VarChar(100)
+  phone             String?          @db.VarChar(32)
+  departmentId      String           @map("department_id") @db.Uuid
+  managerId         String?          @map("manager_id") @db.Uuid
+  status            UserStatus       @default(ACTIVE)
+  joiningDate       DateTime         @map("joining_date") @db.Timestamptz(6)
+  lastLoginAt       DateTime?        @map("last_login_at") @db.Timestamptz(6)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  department        Department       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  manager           User?            @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports     User[]           @relation("UserManager")
+  profile           EmployeeProfile?
+  assignedCustomers Customer[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -75,4 +76,62 @@ model EmployeeProfile {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("employee_profiles")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  PROSPECT
+  BLOCKED
+}
+
+enum CustomerContactStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Customer {
+  id                    String            @id @default(uuid()) @db.Uuid
+  customerCode          String            @unique @map("customer_code") @db.VarChar(32)
+  companyName           String            @map("company_name") @db.VarChar(255)
+  website               String?           @db.VarChar(2048)
+  industry              String?           @db.VarChar(120)
+  country               String?           @db.VarChar(100)
+  state                 String?           @db.VarChar(100)
+  city                  String?           @db.VarChar(100)
+  address               String?           @db.Text
+  source                String?           @db.VarChar(120)
+  status                CustomerStatus    @default(PROSPECT)
+  assignedSalespersonId String?           @map("assigned_salesperson_id") @db.Uuid
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  assignedSalesperson   User?             @relation(fields: [assignedSalespersonId], references: [id], onDelete: SetNull)
+  contacts              CustomerContact[]
+
+  @@index([companyName])
+  @@index([status, deletedAt])
+  @@index([assignedSalespersonId])
+  @@map("customers")
+}
+
+model CustomerContact {
+  id          String                @id @default(uuid()) @db.Uuid
+  customerId  String                @map("customer_id") @db.Uuid
+  firstName   String                @map("first_name") @db.VarChar(100)
+  lastName    String?               @map("last_name") @db.VarChar(100)
+  email       String?               @db.VarChar(320)
+  phone       String?               @db.VarChar(32)
+  designation String?               @db.VarChar(120)
+  isPrimary   Boolean               @default(false) @map("is_primary")
+  status      CustomerContactStatus @default(ACTIVE)
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  customer    Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  // One-primary-contact uniqueness is enforced by a partial SQL index in the migration.
+  @@index([customerId])
+  @@index([email])
+  @@index([phone])
+  @@map("customer_contacts")
 }

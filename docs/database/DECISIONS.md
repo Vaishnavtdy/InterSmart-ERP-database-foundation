@@ -397,4 +397,74 @@
   verification, and how the exact accepted commercial version is frozen.
   The present header link alone does not identify that immutable version.
   These are explicit unresolved service/schema decisions, not implemented
-  acceptance checks. No Step 7 modules are introduced.
+  acceptance checks. No Step 7 modules were introduced by Step 6.
+
+## Scope and Business Analysis boundaries (Step 7)
+
+- **Migration:** `20261010105325_project_scope_business_analysis`. Previous
+  migration history and existing SQL objects are preserved without resets.
+- **Decision:** Add only ProjectScope, ProjectScopeItem, BusinessAnalysis,
+  Competitor, ScopeStatus, and ScopeItemType. Project/User modifications are
+  inverse Prisma relations only.
+- **Reason:** Scope defines WHAT is included/excluded. Business Analysis
+  defines WHY and FOR WHOM. Budget, tasks, and departmental execution are
+  separate concepts and are not introduced by this step.
+- **Analysis:** Unique project ID provides zero or one current document per
+  project, with optional narrative fields and separate multiple competitor
+  records. No speculative analysis versioning or customer authentication
+  is added.
+
+## Scope versioning and current approved selection
+
+- **Decision:** Positive explicit version numbers, unique by project/version,
+  with no current-version pointer. A migration-only partial unique index on
+  project ID where status is APPROVED permits zero or one approved revision.
+- **Reason:** The approved-status query is reliable and indexed without a
+  second source of truth. Older revisions remain as separate records.
+- **Future writer contract:** Create/populate a new draft, then atomically
+  supersede the previous approved revision and approve the new one. Handle
+  unique-number conflicts and serialize competing approval attempts. Approval
+  transitions and permissions are not implemented as services in this step.
+
+## Direct approval metadata and immutable approved scope
+
+- **Decision:** Approval actor/time are paired nullable fields; APPROVED
+  requires both. Optional approver FK uses Restrict rather than clearing
+  historical attribution when an employee is physically deleted.
+- **Reason:** The requested direct metadata supports traceability without
+  building the generic approval engine.
+- **Preservation:** Once approvedAt exists, scope identity, version ownership/
+  number, title, summary, description, creator, approval actor/time, and
+  creation timestamp cannot be edited or removed. Status/update timestamp
+  remain mutable so an approved revision may be superseded.
+- **Items:** SQL guards block insertion, editing, deletion, or moving items
+  out of or into a previously approved scope, regardless of later status.
+  Parent-row locks serialize item mutation with approval. Moving draft items
+  locks both scope parents in ID order.
+- **Reason:** Keeping only old version rows is insufficient if their content
+  or item set can subsequently be overwritten. Clearing status or approval
+  metadata must not bypass historical snapshot protection.
+- **Boundary:** These are preservation guards, not a generic approval engine
+  or a workflow state machine. They do not automatically select approvers,
+  authorize employees, submit/reject scopes, or supersede another revision.
+  Revisit direct approval fields when a generic engine is explicitly approved.
+
+## Scope item values, deletion, and analysis mutability
+
+- **Decision:** Included and excluded deliverables share one item table with
+  a boolean flag. Estimated hours are nullable Decimal(10,2), finite and
+  nonnegative. Sort order is nonnegative, defaults to zero, and may have ties.
+- **Reason:** Scope items define planned boundaries, not execution tasks.
+  Totals, included/excluded counts, estimated-hour sums, and progress are
+  calculated later rather than stored.
+- **Retention:** Project/scope/item/analysis/competitor relationships use
+  Restrict. Project soft deletion retains all child records. Approved scopes,
+  including superseded ones with approval provenance, cannot be deleted even
+  if they have no items. Draft child deletion can be performed explicitly
+  in a future authorized editing flow.
+- **Analysis updates:** Analysis and competitor content remains editable;
+  preserve required creator and optional last-updater links. No aggregate
+  history or audit table is added. Future edits must set updatedById, because
+  the database cannot infer the acting employee.
+- **Dates:** All timestamps use TIMESTAMPTZ(6), with Prisma-maintained
+  updatedAt fields following existing conventions.

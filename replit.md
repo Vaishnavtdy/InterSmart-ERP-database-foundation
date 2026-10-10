@@ -50,6 +50,10 @@ Project is the central business entity. Future Sales, Accounts, PMO, Project
 Coordinator, UI, UX, Development, QA, Budget, Payments, Tasks, Meetings, Customer
 Feedback, Files, Change Requests, and Notifications connect to Project.
 
+Scope defines WHAT is included. Business Analysis defines WHY and FOR WHOM the
+project exists. Budget defines HOW MUCH work is financially allocated; Tasks
+define HOW the work is executed. Keep these concepts separate.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

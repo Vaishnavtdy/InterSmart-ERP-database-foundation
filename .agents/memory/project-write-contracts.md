@@ -1,6 +1,6 @@
 ---
 name: Project write contracts
-description: Historical staffing context and coordinated project lifecycle writes for future services
+description: Historical staffing context and coordinated lifecycle/scope approval writes for future services
 ---
 
 Project team department records are historical assignment context, not a
@@ -25,3 +25,16 @@ history cannot be repaired by editing past events.
 the status update and its from/to status, reason, actor, and timestamp event.
 Define event ordering for tied timestamps before relying on a latest-event
 query for the current condition.
+
+Scope approval writers must fully populate a draft before approving it, and
+replace an approved revision by superseding the old one and approving the new
+one in a single transaction.
+
+**Why:** Approval seals content and its item set permanently; inserting items
+after approval fails. A project has at most one approved scope, so separate
+commits during replacement can expose a gap or leave incomplete supersession.
+
+**How to apply:** Future services should serialize approval attempts per
+project, allocate version numbers with conflict handling, populate draft items,
+and commit both approval-state changes together. Corrections to approved scope
+content require another version, not edits to the historical snapshot.

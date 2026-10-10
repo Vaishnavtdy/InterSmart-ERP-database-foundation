@@ -1,2 +1,2 @@
 - [Prisma ESM imports](prisma-esm-imports.md) — generated enum re-exports need explicit module extensions under NodeNext.
-- [Project write contracts](project-write-contracts.md) — team departments preserve assignment context; status changes and attributed history must commit together.
+- [Project write contracts](project-write-contracts.md) — preserve staffing context; coordinate status/history and scope approval writes atomically.

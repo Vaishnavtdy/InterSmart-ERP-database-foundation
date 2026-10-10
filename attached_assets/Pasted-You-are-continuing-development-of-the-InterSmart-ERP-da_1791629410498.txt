@@ -1,0 +1,527 @@
+You are continuing development of the InterSmart ERP database.
+
+IMPORTANT:
+Steps 1–6 have already been implemented.
+
+Existing modules include:
+
+- Users
+- Departments
+- Employee Profiles
+- Roles
+- Permissions
+- User Roles
+- Role Permissions
+- Customers
+- Customer Contacts
+- Leads
+- Lead Activities
+- Proposals
+- Proposal Versions
+- Proposal Items
+- Projects
+- Project Categories
+- Project Team
+- Project Status History
+- Project Comments
+- Project Actions
+
+DO NOT recreate, replace, or duplicate existing models.
+
+==================================================
+DATABASE STEP 7 — PROJECT SCOPE & BUSINESS ANALYSIS
+==================================================
+
+Implement the Project Scope and Business Analysis module.
+
+This module represents the business information collected during Sales and handed over to the project execution team.
+
+The future workflow is:
+
+Sales
+ ↓
+Proposal
+ ↓
+Project
+ ↓
+Project Scope
+ ↓
+Business Analysis
+ ↓
+PMO / PC
+ ↓
+Department execution
+
+==================================================
+MODELS
+==================================================
+
+Create:
+
+1. ProjectScope
+2. ProjectScopeItem
+3. BusinessAnalysis
+4. Competitor
+
+==================================================
+1. PROJECT SCOPE
+==================================================
+
+A project can have multiple scope versions.
+
+This is important because scope may change during the lifecycle.
+
+Fields:
+
+- id UUID primary key
+- projectId
+- versionNumber
+- title nullable
+- summary nullable
+- scopeDescription nullable
+- status
+- createdById
+- approvedById nullable
+- approvedAt nullable
+- createdAt
+- updatedAt
+
+Relationship:
+
+Project
+ ↓
+ProjectScope[]
+
+Each ProjectScope belongs to exactly one Project.
+
+==================================================
+SCOPE STATUS
+==================================================
+
+Create:
+
+DRAFT
+SUBMITTED
+APPROVED
+REJECTED
+SUPERSEDED
+
+Expected lifecycle:
+
+DRAFT
+ ↓
+SUBMITTED
+ ↓
+APPROVED
+
+If a new scope version becomes approved:
+
+Previous APPROVED version
+ ↓
+SUPERSEDED
+
+Do not physically delete previous approved scope versions.
+
+Historical scope must remain available.
+
+==================================================
+SCOPE VERSIONING
+==================================================
+
+Use:
+
+projectId + versionNumber
+
+as a unique constraint.
+
+Example:
+
+Project A
+ ├── Scope Version 1
+ ├── Scope Version 2
+ └── Scope Version 3
+
+Only one version should normally be the current approved scope.
+
+Do not add unnecessary `currentVersion` fields unless they provide a real query/performance benefit.
+
+If a current-version field is used, ensure it cannot create inconsistent references.
+
+==================================================
+2. PROJECT SCOPE ITEM
+==================================================
+
+Create ProjectScopeItem.
+
+Scope items represent individual included/excluded features or deliverables.
+
+Fields:
+
+- id UUID primary key
+- projectScopeId
+- name
+- description nullable
+- itemType
+- isIncluded
+- estimatedHours nullable
+- sortOrder
+- createdAt
+- updatedAt
+
+==================================================
+SCOPE ITEM TYPE
+==================================================
+
+Create:
+
+PAGE
+FEATURE
+FUNCTIONALITY
+INTEGRATION
+CONTENT
+DESIGN
+DEVELOPMENT
+MOBILE
+OTHER
+
+Do not create separate tables for every scope type.
+
+==================================================
+SCOPE EXAMPLES
+==================================================
+
+Example:
+
+Project:
+ABC Corporate Website
+
+Scope:
+
+Pages:
+- Home
+- About
+- Services
+- Contact
+
+Features:
+- Contact form
+- WhatsApp integration
+- Google Maps
+- CMS
+
+Excluded:
+- Ecommerce
+- Payment gateway
+- Mobile application
+
+The database must be able to represent both included and excluded scope items.
+
+==================================================
+3. BUSINESS ANALYSIS
+==================================================
+
+Create BusinessAnalysis.
+
+A project should have a business analysis document containing the information required by the PC and execution teams.
+
+Fields:
+
+- id UUID primary key
+- projectId
+- purpose nullable
+- aboutCompany nullable
+- targetAudience nullable
+- usp nullable
+- conclusion nullable
+- createdById
+- updatedById nullable
+- createdAt
+- updatedAt
+
+Relationship:
+
+Project
+ ↓
+BusinessAnalysis
+
+A project should have at most one current BusinessAnalysis record.
+
+Use a unique constraint on projectId unless there is a strong architectural reason to support versions.
+
+IMPORTANT:
+
+Do not put business analysis fields directly into Project.
+
+==================================================
+BUSINESS ANALYSIS REQUIREMENTS
+==================================================
+
+Support the following information:
+
+1. Purpose
+2. About Company
+3. Competitors
+4. Target Audience
+5. USP
+6. Conclusion
+
+Competitors are stored separately.
+
+==================================================
+4. COMPETITOR
+==================================================
+
+Create Competitor.
+
+Fields:
+
+- id UUID primary key
+- businessAnalysisId
+- name
+- website nullable
+- description nullable
+- strengths nullable
+- weaknesses nullable
+- createdAt
+- updatedAt
+
+Relationship:
+
+BusinessAnalysis
+ ↓
+Competitor[]
+
+A business analysis can have multiple competitors.
+
+Example:
+
+Competitor 1
+- Name
+- Website
+- Strengths
+- Weaknesses
+
+Competitor 2
+- Name
+- Website
+- Strengths
+- Weaknesses
+
+==================================================
+RELATIONSHIPS
+==================================================
+
+The expected architecture:
+
+Project
+ │
+ ├── ProjectScope[]
+ │     └── ProjectScopeItem[]
+ │
+ └── BusinessAnalysis
+       └── Competitor[]
+
+Users:
+ ├── Scope creator
+ ├── Scope approver
+ ├── Business analysis creator
+ └── Business analysis updater
+
+Use the existing User model.
+
+Do not create another employee/resource model.
+
+==================================================
+SCOPE APPROVAL
+==================================================
+
+Do NOT create the generic Approval Engine yet.
+
+For now:
+
+ProjectScope should store:
+
+approvedById
+approvedAt
+
+This provides the required historical information.
+
+The generic approval system will be implemented later.
+
+When the generic approval engine is created, this direct approval information can be reviewed.
+
+==================================================
+IMPORTANT ARCHITECTURE RULE
+==================================================
+
+Do not mix:
+
+Project Scope
+Business Analysis
+Budget
+Tasks
+UI Pages
+UX
+Development
+
+Each represents a different business concept.
+
+Scope defines WHAT is included.
+
+Business Analysis defines WHY and FOR WHOM the project exists.
+
+Budget defines HOW MUCH work is financially allocated.
+
+Tasks define HOW the work is executed.
+
+==================================================
+DATA INTEGRITY
+==================================================
+
+Requirements:
+
+- ProjectScope.projectId must reference Project.
+- ProjectScopeItem.projectScopeId must reference ProjectScope.
+- BusinessAnalysis.projectId must reference Project.
+- Competitor.businessAnalysisId must reference BusinessAnalysis.
+- createdById / approvedById / updatedById must reference User.
+- Do not allow orphan records.
+
+Use appropriate onDelete behavior.
+
+IMPORTANT:
+
+Do not cascade-delete historical approved scope accidentally.
+
+If a project is deleted/soft-deleted, its historical scope should remain recoverable according to the existing deletion strategy.
+
+Follow existing project deletion conventions.
+
+==================================================
+INDEXES
+==================================================
+
+ProjectScope:
+
+- projectId
+- status
+- createdAt
+
+Composite unique:
+
+- projectId + versionNumber
+
+ProjectScopeItem:
+
+- projectScopeId
+- itemType
+- sortOrder
+
+BusinessAnalysis:
+
+- projectId unique
+
+Competitor:
+
+- businessAnalysisId
+
+==================================================
+CALCULATED VALUES
+==================================================
+
+Do not store:
+
+- total scope items
+- included item count
+- excluded item count
+- total estimated hours
+
+These can be calculated.
+
+Do not store project progress here.
+
+==================================================
+MIGRATION SAFETY
+==================================================
+
+Before implementation:
+
+1. Inspect current Prisma schema.
+2. Inspect previous migrations.
+3. Verify Project model.
+4. Verify User model.
+5. Follow existing naming conventions.
+6. Do not modify existing approved models unnecessarily.
+
+Then:
+
+1. Add models.
+2. Add enums.
+3. Add relationships.
+4. Add indexes.
+5. Add constraints.
+6. Create a new migration.
+7. Run Prisma format.
+8. Run Prisma validate.
+9. Run available tests/type checks.
+
+DO NOT:
+
+- prisma migrate reset
+- delete migrations
+- drop existing tables
+- recreate Project
+- recreate User
+
+==================================================
+SEED DATA
+==================================================
+
+Do not create fake business-analysis records.
+
+Do not create fake projects.
+
+No seed data is required unless the existing project architecture requires lookup data.
+
+==================================================
+DOCUMENTATION
+==================================================
+
+Update:
+
+/docs/database/README.md
+
+/docs/database/ERD.md
+
+/docs/database/DECISIONS.md
+
+Document:
+
+- Project → Scope relationship
+- Scope versioning
+- Scope items
+- Business Analysis
+- Competitors
+- Why Scope and Business Analysis are separate
+- Approval handling
+- Historical scope preservation
+
+==================================================
+FINAL RESPONSE
+==================================================
+
+After implementation report:
+
+1. Models created
+2. Enums created
+3. Relationships
+4. Constraints
+5. Indexes
+6. Migration name
+7. Prisma validation result
+8. Scope versioning strategy
+9. Any design concerns
+
+Then STOP.
+
+Do not implement Step 8 automatically.

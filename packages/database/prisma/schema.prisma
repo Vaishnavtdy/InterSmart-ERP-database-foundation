@@ -72,6 +72,11 @@ model User {
   assignedProjectActions ProjectAction[]        @relation("ProjectActionAssignee")
   createdProjectActions  ProjectAction[]        @relation("ProjectActionCreator")
 
+  createdProjectScopes    ProjectScope[]     @relation("ScopeCreator")
+  approvedProjectScopes   ProjectScope[]     @relation("ScopeApprover")
+  createdBusinessAnalyses BusinessAnalysis[] @relation("AnalysisCreator")
+  updatedBusinessAnalyses BusinessAnalysis[] @relation("AnalysisUpdater")
+
   @@index([departmentId, status])
   @@index([managerId])
   @@index([joiningDate])
@@ -459,6 +464,8 @@ model Project {
   statusHistory        ProjectStatusHistory[]
   comments             ProjectComment[]
   actions              ProjectAction[]
+  scopes               ProjectScope[]
+  businessAnalysis     BusinessAnalysis?
 
   @@index([customerId])
   @@index([proposalId])
@@ -568,4 +575,107 @@ model ProjectAction {
   @@index([status, dueDate])
   @@index([dueDate])
   @@map("project_actions")
+}
+
+enum ScopeStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum ScopeItemType {
+  PAGE
+  FEATURE
+  FUNCTIONALITY
+  INTEGRATION
+  CONTENT
+  DESIGN
+  DEVELOPMENT
+  MOBILE
+  OTHER
+}
+
+model ProjectScope {
+  id               String             @id @default(uuid()) @db.Uuid
+  projectId        String             @map("project_id") @db.Uuid
+  versionNumber    Int                @map("version_number")
+  title            String?            @db.VarChar(255)
+  summary          String?            @db.Text
+  scopeDescription String?            @map("scope_description") @db.Text
+  status           ScopeStatus        @default(DRAFT)
+  createdById      String             @map("created_by_id") @db.Uuid
+  approvedById     String?            @map("approved_by_id") @db.Uuid
+  approvedAt       DateTime?          @map("approved_at") @db.Timestamptz(6)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy        User               @relation("ScopeCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy       User?              @relation("ScopeApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  items            ProjectScopeItem[]
+
+  // One approved scope per project and approved-content preservation are enforced in SQL.
+  @@unique([projectId, versionNumber])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([approvedById])
+  @@map("project_scopes")
+}
+
+model ProjectScopeItem {
+  id             String        @id @default(uuid()) @db.Uuid
+  projectScopeId String        @map("project_scope_id") @db.Uuid
+  name           String        @db.VarChar(255)
+  description    String?       @db.Text
+  itemType       ScopeItemType @map("item_type")
+  isIncluded     Boolean       @default(true) @map("is_included")
+  estimatedHours Decimal?      @map("estimated_hours") @db.Decimal(10, 2)
+  sortOrder      Int           @default(0) @map("sort_order")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectScope   ProjectScope  @relation(fields: [projectScopeId], references: [id], onDelete: Restrict)
+
+  @@index([projectScopeId, sortOrder])
+  @@index([itemType])
+  @@map("project_scope_items")
+}
+
+model BusinessAnalysis {
+  id             String       @id @default(uuid()) @db.Uuid
+  projectId      String       @unique @map("project_id") @db.Uuid
+  purpose        String?      @db.Text
+  aboutCompany   String?      @map("about_company") @db.Text
+  targetAudience String?      @map("target_audience") @db.Text
+  usp            String?      @db.Text
+  conclusion     String?      @db.Text
+  createdById    String       @map("created_by_id") @db.Uuid
+  updatedById    String?      @map("updated_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy      User         @relation("AnalysisCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy      User?        @relation("AnalysisUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  competitors    Competitor[]
+
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("business_analyses")
+}
+
+model Competitor {
+  id                 String           @id @default(uuid()) @db.Uuid
+  businessAnalysisId String           @map("business_analysis_id") @db.Uuid
+  name               String           @db.VarChar(255)
+  website            String?          @db.VarChar(2048)
+  description        String?          @db.Text
+  strengths          String?          @db.Text
+  weaknesses         String?          @db.Text
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  businessAnalysis   BusinessAnalysis @relation(fields: [businessAnalysisId], references: [id], onDelete: Restrict)
+
+  @@index([businessAnalysisId])
+  @@map("competitors")
 }

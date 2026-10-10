@@ -307,3 +307,54 @@ records. No fake projects or financial transactions are seeded.
 Preserve migration-only check constraints, the partial index, and history
 triggers/function when reviewing future migrations; Prisma schema comparison
 alone does not verify all of these PostgreSQL objects.
+
+## Project scope and business analysis (Database Step 7)
+
+Migration: `20261010105325_project_scope_business_analysis`, applied
+transactionally with additive tables, enums, indexes, constraints, and guards.
+
+This step adds only four database models. Scope defines **what** is included or
+excluded; Business Analysis defines **why** and **for whom** the project exists.
+Neither is stored on Project or mixed with budgets, tasks, or execution modules.
+
+| Table | Fields |
+| --- | --- |
+| `project_scopes` | UUID `id`; `project_id`, positive `version_number`; nullable `title`, `summary`, `scope_description`; `status`; required `created_by_id`; nullable `approved_by_id`, `approved_at`; `created_at`, `updated_at` |
+| `project_scope_items` | UUID `id`; `project_scope_id`, `name`; nullable `description`; `item_type`, `is_included`; nullable `estimated_hours`; `sort_order`; `created_at`, `updated_at` |
+| `business_analyses` | UUID `id`; unique `project_id`; nullable `purpose`, `about_company`, `target_audience`, `usp`, `conclusion`; required `created_by_id`; nullable `updated_by_id`; `created_at`, `updated_at` |
+| `competitors` | UUID `id`; `business_analysis_id`, `name`; nullable `website`, `description`, `strengths`, `weaknesses`; `created_at`, `updated_at` |
+
+- Scope status: `DRAFT` (default), `SUBMITTED`, `APPROVED`, `REJECTED`,
+  `SUPERSEDED`.
+- Scope item type: `PAGE`, `FEATURE`, `FUNCTIONALITY`, `INTEGRATION`, `CONTENT`,
+  `DESIGN`, `DEVELOPMENT`, `MOBILE`, `OTHER`.
+- `(project_id, version_number)` is unique. A partial unique index permits
+  zero or one `APPROVED` scope per project; query that record for current
+  approved scope, with no duplicated pointer on Project.
+- Approval actor/time must both be absent or both present. `APPROVED` status
+  requires both. Populate draft items before recording approval.
+- Once approval is recorded, SQL guards preserve scope identity, content,
+  creator, approval attribution/time, and creation time, reject deleting the
+  version, and block insertion/update/deletion/reparenting of its items.
+  Status and update timestamp may still change, allowing supersession.
+- To replace approved scope, future services must insert/populate a new draft,
+  supersede the old approved version, and approve the new one atomically.
+  No automatic supersession, workflow service, or generic approval engine is
+  implemented.
+- Included items default to true; explicitly set false for exclusions.
+  Estimated hours use nullable `NUMERIC(10,2)` and must be finite/nonnegative;
+  unknown hours remain null. Sort order defaults to zero and is nonnegative.
+- Business Analysis is one optional current document per project, not a
+  versioned scope record. It can contain multiple competitors and remains
+  editable with last-updater attribution.
+- Restrictive foreign keys prevent orphaning and cascading loss of project
+  scope, items, analysis, competitors, and employee attribution. Project soft
+  deletion preserves them. No new soft-delete fields or aggregate totals are
+  added to these models.
+- Scope indexes cover project/version number, status/creation time, creation
+  time, creator, and approver. Item indexes cover scope/sort order and item
+  type. Analysis indexes cover unique project, creator/updater; competitor
+  lookup is indexed by analysis ID.
+- No seed changes or fake project/business-analysis records are needed.
+  Preserve the partial index, checks, and snapshot-protection functions/triggers
+  when reviewing future migrations.

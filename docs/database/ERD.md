@@ -33,6 +33,68 @@ erDiagram
   USERS ||--o{ PROJECT_COMMENTS : "comments"
   PROJECTS ||--o{ PROJECT_ACTIONS : "follow-up actions"
   USERS ||--o{ PROJECT_ACTIONS : "assigns/creates actions"
+  PROJECTS ||--o{ PROJECT_SCOPES : "scope revisions"
+  PROJECT_SCOPES ||--o{ PROJECT_SCOPE_ITEMS : "included/excluded deliverables"
+  USERS ||--o{ PROJECT_SCOPES : "creates"
+  USERS o|--o{ PROJECT_SCOPES : "approves"
+  PROJECTS ||--o| BUSINESS_ANALYSES : "current business analysis"
+  USERS ||--o{ BUSINESS_ANALYSES : "creates"
+  USERS o|--o{ BUSINESS_ANALYSES : "last updates"
+  BUSINESS_ANALYSES ||--o{ COMPETITORS : "analyses competitors"
+
+  PROJECT_SCOPES {
+    uuid id PK
+    uuid project_id FK
+    int version_number
+    string title
+    string summary
+    string scope_description
+    enum status
+    uuid created_by_id FK
+    uuid approved_by_id FK
+    timestamptz approved_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  PROJECT_SCOPE_ITEMS {
+    uuid id PK
+    uuid project_scope_id FK
+    string name
+    string description
+    enum item_type
+    boolean is_included
+    decimal estimated_hours
+    int sort_order
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  BUSINESS_ANALYSES {
+    uuid id PK
+    uuid project_id FK, UK
+    string purpose
+    string about_company
+    string target_audience
+    string usp
+    string conclusion
+    uuid created_by_id FK
+    uuid updated_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  COMPETITORS {
+    uuid id PK
+    uuid business_analysis_id FK
+    string name
+    string website
+    string description
+    string strengths
+    string weaknesses
+    timestamptz created_at
+    timestamptz updated_at
+  }
 
   PROJECTS {
     uuid id PK
@@ -288,3 +350,9 @@ user_id)` only while `released_at IS NULL`. History records store optional
 reasons separately from lifecycle status and cannot be updated/deleted.
 No resource-specific employee fields or calculated financial/work totals are
 stored on Project.
+
+Scope `(project_id, version_number)` is unique, and only one scope may have
+APPROVED status per project. Approved scope content and items remain frozen
+after supersession. Business Analysis has one unique project reference and
+separate multiple competitor records; project soft deletion preserves both
+scope history and analysis.

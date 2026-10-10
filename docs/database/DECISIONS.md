@@ -195,3 +195,92 @@
   filters, close-date horizons, chronological history, and upcoming follow-ups.
   Composite indexes retain FK lookup support through their leading columns.
   Global and personal follow-up queries need different leading index columns.
+
+## Proposal scope and customer boundary
+
+- **Migration:** `20261010103125_proposals`, with transactional additive
+  changes only. Existing migrations are not edited or removed.
+- **Decision:** Add only `Proposal`, `ProposalVersion`, `ProposalItem`, and
+  their three enums. Existing User/Customer/Lead changes are inverse relation
+  fields only. There is no project link, customer login, tenancy key, JSONB
+  snapshot, AWS dependency, or separate proposal audit table.
+- **Reason:** Versioned commercial proposals are the requested independent
+  database step; projects, accounts/payment, and global auditing come later.
+- **Customer snapshot decision:** "Proposal references the customer entity.
+  Historical commercial/customer snapshots can be introduced later if
+  legal/business requirements require immutable proposal documents."
+- **Relationships:** Customer and creator are required; lead is optional
+  and not unique. Versions each reference their proposal and creator;
+  items reference a specific version, never the proposal header.
+
+## Current version and safe circular relations
+
+- **Decision:** Keep nullable `currentVersionId` and use a composite FK from
+  proposal `(id, currentVersionId)` to version `(proposalId, id)`. The latter
+  pair has an explicit unique constraint in addition to version ID's PK.
+- **Reason:** A simple FK to version ID would permit selecting a different
+  proposal's version. A single nullable pointer gives zero or one current
+  version, without duplicate flags or version numbers on the header.
+- **Prisma inverse:** `currentFor` is an array to avoid a redundant source
+  composite-unique index. The ownership FK plus the proposal PK still ensures
+  that a version can be current only for its one owning proposal.
+- **Creation:** In one transaction, create the proposal with no current
+  version, create its version/items, then update the pointer. No deferred
+  constraint or fragile insertion order is required.
+- **FK updates:** The current-version FK uses `NoAction` on update rather than
+  cascading changes through the circular relationship. UUID identity and
+  version ownership should not be changed by business workflows.
+
+## Versioning and historical retention
+
+- **Decision:** `(proposalId, versionNumber)` is unique; numbers are positive,
+  explicitly supplied, and need not be gap-free. Both statuses default to
+  `DRAFT`. Only proposals and items have requested update timestamps;
+  only proposal headers have soft-delete markers.
+- **Reason:** Each revision is a separate commercial snapshot. Historical
+  revisions and items must not be replaced when a new revision is created.
+- **Future service contract:** Create a new version for commercial revisions,
+  mark the replaced version `SUPERSEDED`, and update the header pointer
+  atomically. Issued/historical pricing and item content must not be edited.
+  Concurrent version creation must handle the unique-number constraint.
+- **Enforcement boundary:** There are no write services or database workflow
+  triggers in this step. Commercial immutability and status transition rules
+  are future service responsibilities, not guarantees of the current schema.
+  A current pointer is authoritative; no unique `ACTIVE` status constraint
+  is added to incorrectly couple business status and current selection.
+- **Deletion:** Customer/creator references restrict hard deletion. Proposal
+  ownership and item ownership also restrict hard deletion rather than cascade
+  away history. Lead hard deletion clears nullable linkage; proposal soft
+  deletion leaves all revisions and items intact.
+
+## Decimal pricing, discounts, and validity
+
+- **Decision:** Use `Decimal(18,2)` for money/discount value and `Decimal(18,4)`
+  for quantity, with no floating-point columns. Quantity defaults to one and
+  must be positive. Money must be nonnegative. Numeric checks also reject
+  PostgreSQL `NaN`, which ordinary nonnegative comparisons would accept.
+  All version totals are required
+  without defaults, making the writer supply explicit commercial values.
+- **Reason:** Decimal preserves money exactly; fractional service quantities
+  need more scale than money. Unknown pricing must not be silently finalized
+  as zero. Currency and rounding policy must be established before financial
+  integrations; no currency field is invented in this step.
+- **Discounts:** Both type and value must be null or both populated. Percentage
+  value is between 0 and 100, fixed value nonnegative. Backend calculations
+  must enforce discounts against the applicable base, reconcile item/version
+  totals, and apply agreed tax/rounding rules using Decimal, not JS Number.
+- **Snapshots:** Store finalized item amounts and version totals; never
+  duplicate `totalAmount` on the proposal header.
+- **Validity:** The requested header `validUntil` supports overall tracking;
+  version `validUntil` preserves revision-specific validity. The future
+  service must define how it maintains header validity when current changes.
+  All timestamps remain `TIMESTAMPTZ(6)`.
+
+## Future project conversion
+
+- **Decision:** No project relationship is introduced now.
+- **Reason:** Conversion must be designed with the future Project module.
+  It should reference the exact accepted proposal version, not merely the
+  mutable current-version pointer, and be idempotent to avoid duplicate
+  projects. Legal/customer snapshots, accepted-value currency semantics,
+  status auditing, and conversion authorization must be resolved there.

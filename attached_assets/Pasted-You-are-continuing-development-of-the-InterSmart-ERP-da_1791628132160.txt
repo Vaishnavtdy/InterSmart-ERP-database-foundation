@@ -1,0 +1,482 @@
+You are continuing development of the InterSmart ERP database.
+
+IMPORTANT:
+Steps 1–4 have already been implemented.
+
+Existing modules:
+- Users
+- Departments
+- Employee Profiles
+- Roles
+- Permissions
+- User Roles
+- Role Permissions
+- Customers
+- Customer Contacts
+- Leads
+- Lead Activities
+
+DO NOT recreate, replace, or duplicate existing models.
+
+==================================================
+DATABASE STEP 5 — PROPOSALS
+==================================================
+
+Implement the Sales Proposal module.
+
+The proposal workflow should support:
+
+Lead
+  ↓
+Proposal
+  ↓
+Proposal versions
+  ↓
+Customer approval / acceptance
+  ↓
+Project creation
+  ↓
+Accounts / payment
+
+The Project module will be implemented later.
+
+Do NOT create Project models in this step.
+
+==================================================
+MODELS
+==================================================
+
+Create:
+
+1. Proposal
+2. ProposalItem
+3. ProposalVersion
+
+==================================================
+1. PROPOSAL
+==================================================
+
+A Proposal represents a commercial proposal prepared by the Sales team for a lead/customer.
+
+Fields:
+
+- id UUID primary key
+- proposalCode unique
+- leadId nullable
+- customerId
+- createdById
+- title
+- status
+- currentVersionId nullable
+- validUntil nullable
+- createdAt
+- updatedAt
+- deletedAt nullable
+
+RELATIONSHIPS:
+
+Proposal
+ ├── Lead nullable
+ ├── Customer
+ ├── Created By User
+ ├── Proposal Versions[]
+ └── Current Version
+
+IMPORTANT:
+
+leadId MUST be nullable.
+
+A proposal may be created from an existing lead, but the database should not force every proposal to have a lead.
+
+customerId is required because a proposal must belong to a customer.
+
+==================================================
+2. PROPOSAL VERSION
+==================================================
+
+Proposal pricing and commercial details must be versioned.
+
+Do NOT overwrite an old proposal version.
+
+Fields:
+
+- id UUID primary key
+- proposalId
+- versionNumber
+- status
+- subtotal
+- discountAmount
+- taxAmount
+- totalAmount
+- notes nullable
+- validUntil nullable
+- createdById
+- createdAt
+- sentAt nullable
+- acceptedAt nullable
+- rejectedAt nullable
+- rejectionReason nullable
+
+Use Decimal for:
+
+- subtotal
+- discountAmount
+- taxAmount
+- totalAmount
+
+Every proposal should be able to have multiple versions:
+
+Version 1
+Version 2
+Version 3
+...
+
+A proposal should have only one current version.
+
+Use an appropriate unique constraint such as:
+
+proposalId + versionNumber
+
+==================================================
+3. PROPOSAL ITEM
+==================================================
+
+Proposal items belong to a specific proposal version.
+
+Fields:
+
+- id UUID primary key
+- proposalVersionId
+- description
+- quantity
+- unitPrice
+- discountType nullable
+- discountValue nullable
+- amount
+- sortOrder
+- createdAt
+- updatedAt
+
+Use Decimal for:
+
+- quantity where appropriate
+- unitPrice
+- discountValue
+- amount
+
+Do NOT use floating-point types for monetary values.
+
+==================================================
+DISCOUNT TYPE
+==================================================
+
+Support:
+
+PERCENTAGE
+FIXED
+
+Example:
+
+Item price = ₹100,000
+
+PERCENTAGE:
+discountValue = 10
+
+FIXED:
+discountValue = 10,000
+
+The actual calculated amount should be stored as Decimal if it represents a finalized commercial snapshot.
+
+==================================================
+PROPOSAL STATUS
+==================================================
+
+Create an enum:
+
+DRAFT
+SENT
+UNDER_NEGOTIATION
+ACCEPTED
+REJECTED
+EXPIRED
+CANCELLED
+
+Workflow:
+
+DRAFT
+ ↓
+SENT
+ ↓
+UNDER_NEGOTIATION
+ ↓
+ACCEPTED
+
+Possible outcomes:
+
+SENT → REJECTED
+SENT → EXPIRED
+DRAFT → CANCELLED
+
+Do not enforce complicated workflow transitions at database level yet.
+
+The application/service layer will enforce valid transitions.
+
+==================================================
+VERSION STATUS
+==================================================
+
+Use an appropriate status for versions.
+
+Recommended:
+
+DRAFT
+ACTIVE
+SUPERSEDED
+ACCEPTED
+REJECTED
+CANCELLED
+
+A proposal version should become SUPERSEDED when a newer version replaces it.
+
+Do not physically delete old versions simply because a new version is created.
+
+==================================================
+MONEY / CALCULATION RULES
+==================================================
+
+Use PostgreSQL NUMERIC / Prisma Decimal.
+
+Never use:
+
+Float
+Double
+JavaScript floating-point arithmetic as the database source of truth.
+
+The backend will later calculate:
+
+subtotal
+discount
+tax
+total
+
+and save the finalized commercial values.
+
+Do not store unnecessary derived totals at multiple levels.
+
+For example:
+
+Proposal does NOT need its own totalAmount if ProposalVersion already represents the commercial amount.
+
+==================================================
+CUSTOMER RELATIONSHIP
+==================================================
+
+Use the existing Customer model.
+
+Do NOT duplicate:
+
+companyName
+address
+phone
+email
+
+inside Proposal.
+
+If customer information changes later, historical proposal information may need a snapshot mechanism.
+
+For now, add a clear database decision explaining:
+
+"Proposal references the customer entity. Historical commercial/customer snapshots can be introduced later if legal/business requirements require immutable proposal documents."
+
+Do not introduce JSONB snapshot fields unless necessary.
+
+==================================================
+LEAD RELATIONSHIP
+==================================================
+
+Use the existing Lead model.
+
+A proposal may be associated with:
+
+- one lead
+- one customer
+
+A lead may have multiple proposals if required by the business process.
+
+Do not add unnecessary unique constraints on leadId.
+
+==================================================
+CURRENT VERSION
+==================================================
+
+Proposal should be able to identify its current version.
+
+Use:
+
+currentVersionId
+
+if this can be implemented safely without creating problematic circular Prisma relations.
+
+If Prisma relation design becomes unnecessarily complex, document the alternative and use a reliable query strategy instead.
+
+Do NOT introduce duplicate version information.
+
+==================================================
+INDEXES
+==================================================
+
+Add appropriate indexes for:
+
+Proposal:
+
+- proposalCode
+- leadId
+- customerId
+- createdById
+- status
+- validUntil
+
+ProposalVersion:
+
+- proposalId
+- status
+- createdAt
+
+ProposalItem:
+
+- proposalVersionId
+- sortOrder
+
+Use composite unique constraint:
+
+proposalId + versionNumber
+
+==================================================
+AUDITABILITY
+==================================================
+
+Do not create a proposal audit table yet.
+
+The global audit system will be implemented later.
+
+However, preserve:
+
+- createdBy
+- createdAt
+- sentAt
+- acceptedAt
+- rejectedAt
+- rejectionReason
+
+so the lifecycle is traceable.
+
+==================================================
+IMPORTANT ARCHITECTURE RULES
+==================================================
+
+Do NOT create:
+
+- Project
+- Project Team
+- Payment
+- Invoice
+- Budget
+- Task
+- Notification
+- Approval Engine
+
+Those belong to later steps.
+
+Do NOT create customer authentication.
+
+Do NOT create organizationId.
+
+Do NOT create tenantId.
+
+Do NOT add AWS dependencies.
+
+Do NOT introduce unnecessary JSONB.
+
+Do NOT duplicate existing User, Customer, or Lead data.
+
+==================================================
+MIGRATION SAFETY
+==================================================
+
+Before implementation:
+
+1. Inspect current Prisma schema.
+2. Inspect existing migrations.
+3. Verify User, Customer and Lead relationships.
+4. Follow existing naming conventions.
+
+Then:
+
+1. Add Prisma models.
+2. Add enums.
+3. Add relationships.
+4. Add indexes.
+5. Add constraints.
+6. Create a new migration.
+7. Run Prisma format.
+8. Run Prisma validate.
+9. Run relevant tests/type checks.
+
+DO NOT:
+
+- prisma migrate reset
+- delete migrations
+- drop existing tables
+- modify approved modules unnecessarily
+
+==================================================
+SEED DATA
+==================================================
+
+Do not create large seed data.
+
+If seed data is already used by the project, add only minimal proposal status/reference data if the current architecture requires it.
+
+Do not create fake business customers or fake financial transactions.
+
+==================================================
+DOCUMENTATION
+==================================================
+
+Update:
+
+/docs/database/README.md
+
+/docs/database/ERD.md
+
+/docs/database/DECISIONS.md
+
+Document:
+
+- Proposal → Customer relationship
+- Proposal → Lead relationship
+- Proposal → ProposalVersion relationship
+- ProposalVersion → ProposalItem relationship
+- versioning strategy
+- pricing strategy
+- money/Decimal strategy
+
+==================================================
+FINAL RESPONSE
+==================================================
+
+After implementation report:
+
+1. Models created
+2. Enums created
+3. Relationships
+4. Unique constraints
+5. Indexes
+6. Migration name
+7. Prisma validation result
+8. Any design decisions
+9. Any concerns about future Project conversion
+
+Then STOP.
+
+Do not implement Step 6 automatically.

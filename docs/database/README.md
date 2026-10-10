@@ -159,3 +159,49 @@ notifications, proposals, or projects are added.
 - Statuses represent the requested workflow but do not enforce transition
   order or automatically create customers/projects. Those business operations
   and their audited status changes require a separately approved implementation.
+
+## Proposals (Database Step 5)
+
+Migration: `20261010103125_proposals`, applied atomically with additive changes.
+
+Only the database layer is implemented: `proposals`, `proposal_versions`, and
+`proposal_items`. No project, payment, audit, notification, or approval-engine
+models, application endpoints, or screens are introduced.
+
+| Table | Fields |
+| --- | --- |
+| `proposals` | UUID `id`; unique `proposal_code`; nullable `lead_id`; required `customer_id`, `created_by_id`, `title`; `status`; nullable `current_version_id`, `valid_until`; `created_at`, `updated_at`; nullable `deleted_at` |
+| `proposal_versions` | UUID `id`; required `proposal_id`, `version_number`, `status`, `subtotal`, `discount_amount`, `tax_amount`, `total_amount`, `created_by_id`; nullable `notes`, `valid_until`, `sent_at`, `accepted_at`, `rejected_at`, `rejection_reason`; `created_at` |
+| `proposal_items` | UUID `id`; required `proposal_version_id`, `description`, `quantity`, `unit_price`, `amount`, `sort_order`; nullable `discount_type`, `discount_value`; `created_at`, `updated_at` |
+
+- Proposal status: `DRAFT` (default), `SENT`, `UNDER_NEGOTIATION`, `ACCEPTED`,
+  `REJECTED`, `EXPIRED`, `CANCELLED`.
+- Version status: `DRAFT` (default), `ACTIVE`, `SUPERSEDED`, `ACCEPTED`,
+  `REJECTED`, `CANCELLED`. Discount type is `PERCENTAGE` or `FIXED`.
+- A proposal requires an existing customer and employee creator; its lead is
+  optional. A lead can have multiple proposals.
+- Each version has its own items and commercial values. `(proposal_id,
+  version_number)` is unique, and version numbers must be positive.
+- The optional current-version pointer is a composite FK `(id,
+  current_version_id)` to version `(proposal_id, id)`, preventing references to
+  another proposal's version. Create the header with a null current version,
+  insert its version/items, then set the pointer in a transaction.
+- Monetary fields are `NUMERIC(18,2)`; quantity is `NUMERIC(18,4)` and defaults
+  to one. All money must be finite and nonnegative; quantity must be finite
+  and positive. Version
+  totals are required explicit values, not database-calculated defaults.
+- Discount type/value must be supplied together or both omitted. Percentage
+  discounts are limited to 0–100; fixed discounts use a nonnegative amount.
+  Sort order defaults to zero and must be nonnegative; ties are permitted.
+- Pricing lives on versions/items only. The future backend must calculate and
+  validate totals using decimal arithmetic, save finalized snapshots, and
+  create a new version instead of overwriting historical pricing. The schema
+  does not itself make commercial columns immutable.
+- Soft deletion of a proposal retains versions/items. Restrictive FKs prevent
+  cascading removal of customers, creators, versions, and items. Deleting a
+  linked lead clears the optional lead link, preserving the proposal.
+- Indexes cover unique code, lead, customer, creator, status/deletion state,
+  header validity; version owner/number and owner/ID unique keys, creator,
+  status, creation time; and item version/sort order.
+- No seed records are needed: enums provide the controlled status/reference
+  values, and no fake commercial transactions are inserted.

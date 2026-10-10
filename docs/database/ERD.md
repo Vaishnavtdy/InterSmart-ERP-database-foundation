@@ -1,4 +1,4 @@
-# Employee, customer, and lead ERD
+# Employee, customer, lead, and proposal ERD
 
 ```mermaid
 erDiagram
@@ -11,6 +11,61 @@ erDiagram
   USERS ||--o{ LEADS : "assigned salesperson"
   LEADS ||--o{ LEAD_ACTIVITIES : "activity history"
   USERS ||--o{ LEAD_ACTIVITIES : "activity author"
+  CUSTOMERS ||--o{ PROPOSALS : "receives proposals"
+  LEADS o|--o{ PROPOSALS : "optional lead"
+  USERS ||--o{ PROPOSALS : "creates"
+  PROPOSALS ||--o{ PROPOSAL_VERSIONS : "revision history"
+  USERS ||--o{ PROPOSAL_VERSIONS : "creates revision"
+  PROPOSAL_VERSIONS o|--o| PROPOSALS : "current owned revision"
+  PROPOSAL_VERSIONS ||--o{ PROPOSAL_ITEMS : "revision items"
+
+  PROPOSALS {
+    uuid id PK
+    string proposal_code UK
+    uuid lead_id FK
+    uuid customer_id FK
+    uuid created_by_id FK
+    string title
+    enum status
+    uuid current_version_id FK
+    timestamptz valid_until
+    timestamptz created_at
+    timestamptz updated_at
+    timestamptz deleted_at
+  }
+
+  PROPOSAL_VERSIONS {
+    uuid id PK
+    uuid proposal_id FK
+    int version_number
+    enum status
+    decimal subtotal
+    decimal discount_amount
+    decimal tax_amount
+    decimal total_amount
+    string notes
+    timestamptz valid_until
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz sent_at
+    timestamptz accepted_at
+    timestamptz rejected_at
+    string rejection_reason
+  }
+
+  PROPOSAL_ITEMS {
+    uuid id PK
+    uuid proposal_version_id FK
+    string description
+    decimal quantity
+    decimal unit_price
+    enum discount_type
+    decimal discount_value
+    decimal amount
+    int sort_order
+    timestamptz created_at
+    timestamptz updated_at
+  }
 
   LEADS {
     uuid id PK
@@ -125,3 +180,10 @@ control.
 `leads.customer_id` is nullable; employee assignment is required. Lead soft
 deletion retains activities. Hard deletion of leads with activity history and
 users with lead assignments/authored activities is restricted.
+
+Proposal lead linkage is nullable, customer/creator linkage required. Version
+`(proposal_id, version_number)` and `(proposal_id, id)` are composite unique
+keys. Current selection uses `(proposals.id, current_version_id)` to reference
+`(proposal_versions.proposal_id, id)`, ensuring the selected version belongs
+to the same proposal. Item ordering is indexed by `(proposal_version_id,
+sort_order)`; sort-order values need not be unique.

@@ -37,28 +37,30 @@ model Department {
 }
 
 model User {
-  id                String           @id @default(uuid()) @db.Uuid
-  employeeCode      String           @unique @map("employee_code") @db.VarChar(32)
-  email             String           @unique @db.VarChar(320)
-  passwordHash      String           @map("password_hash") @db.VarChar(255)
-  firstName         String           @map("first_name") @db.VarChar(100)
-  lastName          String           @map("last_name") @db.VarChar(100)
-  phone             String?          @db.VarChar(32)
-  departmentId      String           @map("department_id") @db.Uuid
-  managerId         String?          @map("manager_id") @db.Uuid
-  status            UserStatus       @default(ACTIVE)
-  joiningDate       DateTime         @map("joining_date") @db.Timestamptz(6)
-  lastLoginAt       DateTime?        @map("last_login_at") @db.Timestamptz(6)
-  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt         DateTime?        @map("deleted_at") @db.Timestamptz(6)
-  department        Department       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  manager           User?            @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
-  directReports     User[]           @relation("UserManager")
-  profile           EmployeeProfile?
-  assignedCustomers Customer[]
-  assignedLeads     Lead[]
-  leadActivities    LeadActivity[]
+  id                      String            @id @default(uuid()) @db.Uuid
+  employeeCode            String            @unique @map("employee_code") @db.VarChar(32)
+  email                   String            @unique @db.VarChar(320)
+  passwordHash            String            @map("password_hash") @db.VarChar(255)
+  firstName               String            @map("first_name") @db.VarChar(100)
+  lastName                String            @map("last_name") @db.VarChar(100)
+  phone                   String?           @db.VarChar(32)
+  departmentId            String            @map("department_id") @db.Uuid
+  managerId               String?           @map("manager_id") @db.Uuid
+  status                  UserStatus        @default(ACTIVE)
+  joiningDate             DateTime          @map("joining_date") @db.Timestamptz(6)
+  lastLoginAt             DateTime?         @map("last_login_at") @db.Timestamptz(6)
+  createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt               DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  department              Department        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  manager                 User?             @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports           User[]            @relation("UserManager")
+  profile                 EmployeeProfile?
+  assignedCustomers       Customer[]
+  assignedLeads           Lead[]
+  leadActivities          LeadActivity[]
+  createdProposals        Proposal[]
+  createdProposalVersions ProposalVersion[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -111,6 +113,7 @@ model Customer {
   assignedSalesperson   User?             @relation(fields: [assignedSalespersonId], references: [id], onDelete: SetNull)
   contacts              CustomerContact[]
   leads                 Lead[]
+  proposals             Proposal[]
 
   @@index([companyName])
   @@index([status, deletedAt])
@@ -200,6 +203,7 @@ model Lead {
   customer          Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
   assignedTo        User            @relation(fields: [assignedToId], references: [id], onDelete: Restrict)
   activities        LeadActivity[]
+  proposals         Proposal[]
 
   @@index([customerId])
   @@index([assignedToId, status, deletedAt])
@@ -230,4 +234,104 @@ model LeadActivity {
   @@index([scheduledAt])
   @@index([nextFollowUpAt])
   @@map("lead_activities")
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  UNDER_NEGOTIATION
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum ProposalVersionStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+model Proposal {
+  id               String            @id @default(uuid()) @db.Uuid
+  proposalCode     String            @unique @map("proposal_code") @db.VarChar(32)
+  leadId           String?           @map("lead_id") @db.Uuid
+  customerId       String            @map("customer_id") @db.Uuid
+  createdById      String            @map("created_by_id") @db.Uuid
+  title            String            @db.VarChar(255)
+  status           ProposalStatus    @default(DRAFT)
+  currentVersionId String?           @map("current_version_id") @db.Uuid
+  validUntil       DateTime?         @map("valid_until") @db.Timestamptz(6)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  lead             Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy        User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  versions         ProposalVersion[] @relation("ProposalVersions")
+  currentVersion   ProposalVersion?  @relation("ProposalCurrentVersion", fields: [id, currentVersionId], references: [proposalId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([leadId])
+  @@index([customerId])
+  @@index([createdById])
+  @@index([status, deletedAt])
+  @@index([validUntil])
+  @@map("proposals")
+}
+
+model ProposalVersion {
+  id              String                @id @default(uuid()) @db.Uuid
+  proposalId      String                @map("proposal_id") @db.Uuid
+  versionNumber   Int                   @map("version_number")
+  status          ProposalVersionStatus @default(DRAFT)
+  subtotal        Decimal               @db.Decimal(18, 2)
+  discountAmount  Decimal               @map("discount_amount") @db.Decimal(18, 2)
+  taxAmount       Decimal               @map("tax_amount") @db.Decimal(18, 2)
+  totalAmount     Decimal               @map("total_amount") @db.Decimal(18, 2)
+  notes           String?               @db.Text
+  validUntil      DateTime?             @map("valid_until") @db.Timestamptz(6)
+  createdById     String                @map("created_by_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt          DateTime?             @map("sent_at") @db.Timestamptz(6)
+  acceptedAt      DateTime?             @map("accepted_at") @db.Timestamptz(6)
+  rejectedAt      DateTime?             @map("rejected_at") @db.Timestamptz(6)
+  rejectionReason String?               @map("rejection_reason") @db.Text
+  proposal        Proposal              @relation("ProposalVersions", fields: [proposalId], references: [id], onDelete: Restrict)
+  createdBy       User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  items           ProposalItem[]
+  currentFor      Proposal[]            @relation("ProposalCurrentVersion")
+
+  @@unique([proposalId, versionNumber])
+  // Required target key for the same-proposal current-version foreign key.
+  @@unique([proposalId, id])
+  @@index([createdById])
+  @@index([status])
+  @@index([createdAt])
+  @@map("proposal_versions")
+}
+
+model ProposalItem {
+  id                String          @id @default(uuid()) @db.Uuid
+  proposalVersionId String          @map("proposal_version_id") @db.Uuid
+  description       String          @db.Text
+  quantity          Decimal         @default(1) @db.Decimal(18, 4)
+  unitPrice         Decimal         @map("unit_price") @db.Decimal(18, 2)
+  discountType      DiscountType?   @map("discount_type")
+  discountValue     Decimal?        @map("discount_value") @db.Decimal(18, 2)
+  amount            Decimal         @db.Decimal(18, 2)
+  sortOrder         Int             @default(0) @map("sort_order")
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  proposalVersion   ProposalVersion @relation(fields: [proposalVersionId], references: [id], onDelete: Restrict)
+
+  @@index([proposalVersionId, sortOrder])
+  @@map("proposal_items")
 }

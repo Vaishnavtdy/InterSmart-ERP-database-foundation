@@ -130,3 +130,68 @@
   arbitrary substring search. `(status, deleted_at)` supports lifecycle
   filtering; salesperson and contact-customer indexes support relationship
   queries. Email and phone indexes support exact contact lookups.
+
+## Lead module scope and preservation
+
+- **Migration:** `20261010101229_leads` applies new tables, enums, indexes,
+  constraints, and foreign keys atomically. No existing tables are dropped
+  or changed.
+- **Decision:** Add only `Lead`, `LeadActivity`, their four enums, indexes,
+  and foreign keys. User/customer changes are inverse Prisma relation fields
+  only; existing table columns, constraints, and migrations are preserved.
+- **Reason:** Leads precede confirmed customer/project workflows. This step
+  must not create proposal/project entities or any application-layer code.
+- **Existing modules:** The earlier Step 2 roles/permissions discrepancy
+  remains unchanged. This module uses existing `User` and `Customer` records
+  without recreating access-control entities.
+
+## Lead capture, sources, and workflow
+
+- **Decision:** Customer linkage is nullable. Assignment, source, and contact
+  name are required. Lead status defaults to `NEW`, temperature to `COLD`.
+  Source uses the nine requested controlled values with no default.
+- **Reason:** A lead may exist before a customer and should not require a
+  fabricated customer record. Explicit source selection avoids incorrectly
+  attributing acquisition channels.
+- **Contact snapshot:** Requested contact/company fields represent information
+  captured for this opportunity, particularly before customer creation. Do
+  not automatically duplicate employee information or copy the entire customer
+  record into the lead.
+- **Source configuration:** Use an enum now. If administrators later need to
+  manage channels without migrations, propose a separate configuration design
+  then, rather than adding a speculative source table.
+- **Workflow:** All requested stages are supported, including `LOST`. Stage
+  transitions, conversion to customers/projects, and audited status mutation
+  are not implemented by this database-only step. No additional history model
+  is introduced beyond the requested activity table.
+
+## Lead value, timestamps, and historical retention
+
+- **Decision:** Estimated value is nullable `Decimal(18,2)` with a SQL
+  nonnegative check. No default zero, currency field, calculated totals, or
+  conversion percentages are stored.
+- **Reason:** Unknown value is different from zero. Currency was not provided;
+  reporting must establish common currency semantics before aggregating values.
+- **Timestamps:** All dates use the established timezone-aware convention.
+  Leads have creation/update timestamps and an optional soft-delete marker;
+  activities contain only the requested creation timestamp and optional
+  scheduling/completion/follow-up timestamps, with no soft-delete field.
+- **Deletion:** Soft deletion leaves history untouched. Lead activity FKs
+  restrict hard deletion of leads and their authors. Required salesperson
+  assignment also restricts user hard deletion; customer hard deletion clears
+  optional lead linkage. User/customer soft deletion does not change FKs.
+- **Reason:** Sales history and author attribution must not disappear through
+  cascading deletion. Employees and leads should normally be deactivated or
+  soft-deleted, not physically removed.
+
+## Lead query indexes
+
+- **Decision:** Index unique lead code; customer ID; assigned employee/status/
+  deletion state; status/deletion state; temperature/deletion state; expected
+  close date; created time. Index activities by lead/created time,
+  author/next-follow-up time, activity type, scheduled time, and next-follow-up
+  time.
+- **Reason:** These cover personal lead lists, hot/follow-up/ready-to-close
+  filters, close-date horizons, chronological history, and upcoming follow-ups.
+  Composite indexes retain FK lookup support through their leading columns.
+  Global and personal follow-up queries need different leading index columns.

@@ -1,0 +1,397 @@
+You are continuing development of the InterSmart ERP database.
+
+IMPORTANT:
+Steps 1, 2, and 3 have already been implemented.
+
+Existing modules:
+- Users
+- Departments
+- Employee Profiles
+- Roles
+- Permissions
+- User Roles
+- Role Permissions
+- Customers
+- Customer Contacts
+
+DO NOT recreate, replace, or duplicate these modules.
+
+This ERP is used internally by InterSmart employees, but it manages the COMPLETE business lifecycle.
+
+Internal employees use the ERP.
+External customers are stored as business entities.
+Customers do NOT log into the ERP.
+
+==================================================
+DATABASE STEP 4 — LEADS
+==================================================
+
+Create the Sales Lead Management module.
+
+Create these models:
+
+1. Lead
+2. LeadActivity
+
+==================================================
+1. LEAD
+==================================================
+
+A lead represents a potential business opportunity before it becomes a confirmed project/customer relationship.
+
+Fields:
+
+- id UUID primary key
+- leadCode unique
+- customerId nullable
+- assignedToId
+- source
+- contactName
+- email nullable
+- phone nullable
+- companyName nullable
+- requirement nullable
+- estimatedValue Decimal nullable
+- expectedCloseDate nullable
+- status
+- temperature
+- notes nullable
+- createdAt
+- updatedAt
+- deletedAt nullable
+
+RELATIONSHIPS:
+
+Lead
+ ├── Customer nullable
+ ├── Assigned Sales User
+ └── Lead Activities
+
+`assignedToId` must reference the existing User model.
+
+`customerId` must reference the existing Customer model.
+
+IMPORTANT:
+
+A lead can exist before a customer record exists.
+
+Therefore:
+
+customerId MUST be nullable.
+
+==================================================
+LEAD STATUS
+==================================================
+
+Create an enum:
+
+NEW
+FOLLOW_UP
+MEETING
+PROPOSAL
+READY_TO_CLOSE
+WON
+LOST
+
+Meaning:
+
+NEW
+Newly created lead.
+
+FOLLOW_UP
+Salesperson needs to follow up.
+
+MEETING
+Meeting/discussion stage.
+
+PROPOSAL
+Proposal has been prepared/shared.
+
+READY_TO_CLOSE
+High probability of conversion.
+
+WON
+Lead converted successfully.
+
+LOST
+Opportunity was lost.
+
+==================================================
+LEAD TEMPERATURE
+==================================================
+
+Create enum:
+
+COLD
+WARM
+HOT
+
+==================================================
+LEAD SOURCE
+==================================================
+
+Do not create a separate source table yet.
+
+Store the source as a controlled string/enum if appropriate.
+
+Possible values:
+
+WEBSITE
+REFERRAL
+SOCIAL_MEDIA
+ADVERTISEMENT
+COLD_CALL
+EMAIL
+DIRECT
+EXISTING_CUSTOMER
+OTHER
+
+If you believe this should be configurable later, document the recommendation instead of unnecessarily creating another table.
+
+==================================================
+2. LEAD ACTIVITY
+==================================================
+
+Create a LeadActivity model.
+
+Fields:
+
+- id UUID primary key
+- leadId
+- userId
+- activityType
+- subject
+- description nullable
+- scheduledAt nullable
+- completedAt nullable
+- nextFollowUpAt nullable
+- createdAt
+
+Relationships:
+
+Lead
+ ↓
+LeadActivity[]
+
+User
+ ↓
+LeadActivity[]
+
+==================================================
+ACTIVITY TYPES
+==================================================
+
+CALL
+EMAIL
+MEETING
+FOLLOW_UP
+PROPOSAL
+NOTE
+WHATSAPP
+OTHER
+
+==================================================
+SALES WORKFLOW
+==================================================
+
+The database should support this workflow:
+
+NEW
+ ↓
+FOLLOW_UP
+ ↓
+MEETING
+ ↓
+PROPOSAL
+ ↓
+READY_TO_CLOSE
+ ↓
+WON
+
+Possible alternative:
+
+Any active stage
+ ↓
+LOST
+
+A WON lead will later be connected to the proposal/project workflow.
+
+DO NOT create project relationships yet unless absolutely necessary.
+
+The Project module will be implemented later.
+
+==================================================
+IMPORTANT DATA RULES
+==================================================
+
+1. Use UUID primary keys.
+
+2. Use PostgreSQL.
+
+3. Use Prisma.
+
+4. Use Decimal for estimatedValue.
+
+5. Do not store calculated conversion percentages.
+
+6. Do not store dashboard counts.
+
+7. Dashboard metrics will be calculated from lead data.
+
+8. Do not duplicate user information inside Lead.
+
+9. Do not duplicate customer information unnecessarily.
+
+10. Use foreign keys.
+
+11. Add appropriate indexes.
+
+12. Use createdAt and updatedAt appropriately.
+
+13. Use deletedAt only where appropriate.
+
+14. Do not use organizationId.
+
+15. Do not use tenantId.
+
+16. Do not add AWS dependencies.
+
+17. Do not introduce unnecessary JSONB fields.
+
+==================================================
+INDEXES
+==================================================
+
+Consider indexes for:
+
+Lead:
+
+- leadCode
+- customerId
+- assignedToId
+- status
+- temperature
+- expectedCloseDate
+- createdAt
+
+LeadActivity:
+
+- leadId
+- userId
+- activityType
+- scheduledAt
+- nextFollowUpAt
+
+The indexes should support queries such as:
+
+- My leads
+- Hot leads
+- Follow-up leads
+- Ready-to-close leads
+- Leads expected to close soon
+- Leads assigned to a salesperson
+- Upcoming follow-ups
+- Lead activity history
+
+==================================================
+SOFT DELETE
+==================================================
+
+If using deletedAt:
+
+Do not automatically cascade-delete lead activities when a lead is soft deleted.
+
+Historical sales activity should remain available.
+
+==================================================
+VALIDATION
+==================================================
+
+Before making changes:
+
+1. Inspect the current Prisma schema.
+2. Inspect previous migrations.
+3. Confirm the existing User model.
+4. Confirm the existing Customer model.
+5. Confirm existing naming conventions.
+
+Follow the existing project conventions.
+
+Do not rename existing models just for preference.
+
+==================================================
+IMPLEMENTATION
+==================================================
+
+Implement only the database layer.
+
+Do NOT create:
+
+- API controllers
+- Services
+- DTOs
+- Frontend pages
+- React components
+- Notifications
+- Proposal module
+- Project module
+
+Those will be implemented later.
+
+Create:
+
+- Prisma models
+- enums
+- relationships
+- indexes
+- migration
+- seed data only if genuinely useful
+
+Update:
+
+/docs/database/README.md
+
+/docs/database/ERD.md
+
+/docs/database/DECISIONS.md
+
+==================================================
+MIGRATION SAFETY
+==================================================
+
+IMPORTANT:
+
+Do NOT run:
+
+prisma migrate reset
+
+Do NOT delete existing migrations.
+
+Do NOT drop existing tables.
+
+Create a new migration only for this step.
+
+Run:
+
+- Prisma format
+- Prisma validate
+- Prisma migration
+- relevant tests/type checks if available
+
+==================================================
+FINAL RESPONSE
+==================================================
+
+After implementation, report:
+
+1. Models created
+2. Enums created
+3. Relationships
+4. Indexes
+5. Migration name
+6. Validation result
+7. Any assumptions or design decisions
+
+Then STOP.
+
+Do not implement Step 5 automatically.

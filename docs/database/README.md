@@ -119,3 +119,43 @@ and have no role or permission links. No APIs or frontend screens are included.
 
 **Repository observation:** Step 2 roles/permissions models and migration were
 not present when Step 3 was implemented. They have not been recreated or added.
+
+## Leads (Database Step 4)
+
+Migration: `20261010101229_leads`, containing only additive lead-module changes.
+
+This database-only module adds `leads` and `lead_activities`. A lead can be
+captured before a customer exists. Customers remain external business entities,
+not authenticating ERP users. No controllers, services, DTOs, screens,
+notifications, proposals, or projects are added.
+
+| Table | Fields |
+| --- | --- |
+| `leads` | UUID `id`; unique `lead_code`; nullable `customer_id`; required `assigned_to_id`, `source`, `contact_name`; nullable `email`, `phone`, `company_name`, `requirement`, `estimated_value`, `expected_close_date`; `status`, `temperature`; nullable `notes`; `created_at`, `updated_at`; nullable `deleted_at` |
+| `lead_activities` | UUID `id`; required `lead_id`, `user_id`, `activity_type`, `subject`; nullable `description`, `scheduled_at`, `completed_at`, `next_follow_up_at`; `created_at` |
+
+- Lead status: `NEW` (default), `FOLLOW_UP`, `MEETING`, `PROPOSAL`,
+  `READY_TO_CLOSE`, `WON`, `LOST`.
+- Temperature: `COLD` (default), `WARM`, `HOT`.
+- Required source: `WEBSITE`, `REFERRAL`, `SOCIAL_MEDIA`, `ADVERTISEMENT`,
+  `COLD_CALL`, `EMAIL`, `DIRECT`, `EXISTING_CUSTOMER`, `OTHER`.
+- Activity type: `CALL`, `EMAIL`, `MEETING`, `FOLLOW_UP`, `PROPOSAL`, `NOTE`,
+  `WHATSAPP`, `OTHER`.
+- Estimated value is nullable `NUMERIC(18,2)` and must not be negative. Currency
+  was not specified; no currency column or exchange-rate assumption is added.
+  Choose a common reporting currency before aggregating these values.
+- IDs/FKs are native UUIDs; timestamps are `TIMESTAMPTZ(6)`. Prisma maintains
+  the lead's `updated_at`. Activities have the requested `created_at` only.
+- Assigned employee and activity author FKs restrict hard deletion of users.
+  Deleting a customer clears nullable lead linkage rather than deleting leads.
+- Lead soft deletion retains activities. Hard deletion of a lead with
+  activities is restricted, preventing accidental destruction of sales history.
+- Indexes cover unique lead code, customer lookup, assigned employee/status/
+  deletion state, status/deletion state, temperature/deletion state, expected
+  close date, and creation date. Activity indexes cover lead/history timestamp,
+  author/next follow-up time, type, scheduled time, and next follow-up time.
+- No dashboard totals or conversion percentages are stored. This step adds
+  no sample lead or activity seed data.
+- Statuses represent the requested workflow but do not enforce transition
+  order or automatically create customers/projects. Those business operations
+  and their audited status changes require a separately approved implementation.

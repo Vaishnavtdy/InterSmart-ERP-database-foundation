@@ -1,4 +1,4 @@
-# Employee and customer ERD
+# Employee, customer, and lead ERD
 
 ```mermaid
 erDiagram
@@ -7,6 +7,44 @@ erDiagram
   USERS ||--o| EMPLOYEE_PROFILES : "has profile"
   USERS o|--o{ CUSTOMERS : "assigned salesperson"
   CUSTOMERS ||--o{ CUSTOMER_CONTACTS : "has contacts"
+  CUSTOMERS o|--o{ LEADS : "optional customer linkage"
+  USERS ||--o{ LEADS : "assigned salesperson"
+  LEADS ||--o{ LEAD_ACTIVITIES : "activity history"
+  USERS ||--o{ LEAD_ACTIVITIES : "activity author"
+
+  LEADS {
+    uuid id PK
+    string lead_code UK
+    uuid customer_id FK
+    uuid assigned_to_id FK
+    enum source
+    string contact_name
+    string email
+    string phone
+    string company_name
+    string requirement
+    decimal estimated_value
+    timestamptz expected_close_date
+    enum status
+    enum temperature
+    string notes
+    timestamptz created_at
+    timestamptz updated_at
+    timestamptz deleted_at
+  }
+
+  LEAD_ACTIVITIES {
+    uuid id PK
+    uuid lead_id FK
+    uuid user_id FK
+    enum activity_type
+    string subject
+    string description
+    timestamptz scheduled_at
+    timestamptz completed_at
+    timestamptz next_follow_up_at
+    timestamptz created_at
+  }
 
   CUSTOMERS {
     uuid id PK
@@ -83,3 +121,7 @@ add an organizations table, `tenant_id`, or `organization_id`.
 `is_primary = true`. Non-primary contacts are unrestricted in number. Neither
 customers nor their contacts authenticate or participate in employee access
 control.
+
+`leads.customer_id` is nullable; employee assignment is required. Lead soft
+deletion retains activities. Hard deletion of leads with activity history and
+users with lead assignments/authored activities is restricted.

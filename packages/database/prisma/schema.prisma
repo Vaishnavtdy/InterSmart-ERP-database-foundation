@@ -57,6 +57,8 @@ model User {
   directReports     User[]           @relation("UserManager")
   profile           EmployeeProfile?
   assignedCustomers Customer[]
+  assignedLeads     Lead[]
+  leadActivities    LeadActivity[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -108,6 +110,7 @@ model Customer {
   deletedAt             DateTime?         @map("deleted_at") @db.Timestamptz(6)
   assignedSalesperson   User?             @relation(fields: [assignedSalespersonId], references: [id], onDelete: SetNull)
   contacts              CustomerContact[]
+  leads                 Lead[]
 
   @@index([companyName])
   @@index([status, deletedAt])
@@ -134,4 +137,97 @@ model CustomerContact {
   @@index([email])
   @@index([phone])
   @@map("customer_contacts")
+}
+
+enum LeadStatus {
+  NEW
+  FOLLOW_UP
+  MEETING
+  PROPOSAL
+  READY_TO_CLOSE
+  WON
+  LOST
+}
+
+enum LeadTemperature {
+  COLD
+  WARM
+  HOT
+}
+
+enum LeadSource {
+  WEBSITE
+  REFERRAL
+  SOCIAL_MEDIA
+  ADVERTISEMENT
+  COLD_CALL
+  EMAIL
+  DIRECT
+  EXISTING_CUSTOMER
+  OTHER
+}
+
+enum LeadActivityType {
+  CALL
+  EMAIL
+  MEETING
+  FOLLOW_UP
+  PROPOSAL
+  NOTE
+  WHATSAPP
+  OTHER
+}
+
+model Lead {
+  id                String          @id @default(uuid()) @db.Uuid
+  leadCode          String          @unique @map("lead_code") @db.VarChar(32)
+  customerId        String?         @map("customer_id") @db.Uuid
+  assignedToId      String          @map("assigned_to_id") @db.Uuid
+  source            LeadSource
+  contactName       String          @map("contact_name") @db.VarChar(200)
+  email             String?         @db.VarChar(320)
+  phone             String?         @db.VarChar(32)
+  companyName       String?         @map("company_name") @db.VarChar(255)
+  requirement       String?         @db.Text
+  estimatedValue    Decimal?        @map("estimated_value") @db.Decimal(18, 2)
+  expectedCloseDate DateTime?       @map("expected_close_date") @db.Timestamptz(6)
+  status            LeadStatus      @default(NEW)
+  temperature       LeadTemperature @default(COLD)
+  notes             String?         @db.Text
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  customer          Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedTo        User            @relation(fields: [assignedToId], references: [id], onDelete: Restrict)
+  activities        LeadActivity[]
+
+  @@index([customerId])
+  @@index([assignedToId, status, deletedAt])
+  @@index([status, deletedAt])
+  @@index([temperature, deletedAt])
+  @@index([expectedCloseDate])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+model LeadActivity {
+  id             String           @id @default(uuid()) @db.Uuid
+  leadId         String           @map("lead_id") @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  activityType   LeadActivityType @map("activity_type")
+  subject        String           @db.VarChar(255)
+  description    String?          @db.Text
+  scheduledAt    DateTime?        @map("scheduled_at") @db.Timestamptz(6)
+  completedAt    DateTime?        @map("completed_at") @db.Timestamptz(6)
+  nextFollowUpAt DateTime?        @map("next_follow_up_at") @db.Timestamptz(6)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  lead           Lead             @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([leadId, createdAt])
+  @@index([userId, nextFollowUpAt])
+  @@index([activityType])
+  @@index([scheduledAt])
+  @@index([nextFollowUpAt])
+  @@map("lead_activities")
 }

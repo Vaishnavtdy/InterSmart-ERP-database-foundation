@@ -71,6 +71,11 @@ UI, UX, Development, QA, PMO and other workstreams share one common task engine.
 Project actions are high-level follow-ups; tasks represent executable work.
 Detailed time tracking and sprint management are intentionally deferred.
 
+UI design specifications are versioned project definitions with separate pages
+and sections. UI executable work reuses common tasks through UI task links;
+staffing uses ProjectTeam and UI files reuse MinIO File/ProjectResource metadata.
+Daily UI status is a reporting snapshot, not authoritative task/project progress.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

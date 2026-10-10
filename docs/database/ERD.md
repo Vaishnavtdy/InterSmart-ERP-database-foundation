@@ -2,6 +2,93 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ PROJECT_UI : "UI specification versions"
+  USERS ||--o{ PROJECT_UI : "creates"
+  USERS o|--o{ PROJECT_UI : "approves"
+  PROJECT_UI ||--o{ UI_PAGES : "defines pages"
+  USERS ||--o{ UI_PAGES : "creates"
+  UI_PAGES ||--o{ UI_SECTIONS : "contains"
+  USERS ||--o{ UI_SECTIONS : "creates"
+  TASKS ||--o{ UI_TASK_LINKS : "common UI work"
+  UI_PAGES ||--o{ UI_TASK_LINKS : "page target"
+  UI_SECTIONS o|--o{ UI_TASK_LINKS : "optional section within page"
+  PROJECT_UI ||--o{ UI_DAILY_STATUS : "daily reporting"
+  USERS ||--o{ UI_DAILY_STATUS : "reports"
+  PROJECT_UI ||--o{ UI_DESIGN_LINKS : "external design URLs"
+  USERS ||--o{ UI_DESIGN_LINKS : "creates"
+
+  PROJECT_UI {
+    uuid id PK
+    uuid project_id FK
+    int version_number "unique with project_id, positive"
+    string title
+    string description "nullable"
+    UiStatus status
+    uuid created_by_id FK
+    uuid approved_by_id FK "nullable"
+    timestamptz approved_at "nullable, paired with approver"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UI_PAGES {
+    uuid id PK
+    uuid project_ui_id FK
+    string name
+    string slug "unique within specification"
+    UiPageType page_type
+    string description "nullable"
+    string url "nullable, nonunique"
+    int sort_order
+    UiPageStatus status
+    boolean is_required
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UI_SECTIONS {
+    uuid id PK
+    uuid ui_page_id FK
+    string name
+    string description "nullable"
+    UiSectionType section_type
+    int sort_order
+    UiPageStatus status
+    boolean is_required
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UI_TASK_LINKS {
+    uuid id PK
+    uuid task_id FK
+    uuid ui_page_id FK
+    uuid ui_section_id FK "nullable, same page"
+    timestamptz created_at
+  }
+  UI_DAILY_STATUS {
+    uuid id PK
+    uuid project_ui_id FK
+    date status_date "unique with specification"
+    UiStatus status
+    string summary
+    string blockers "nullable"
+    int completion_percentage "nullable, 0..100 snapshot"
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UI_DESIGN_LINKS {
+    uuid id PK
+    uuid project_ui_id FK
+    string title
+    string url
+    UiDesignLinkType link_type
+    string description "nullable"
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
   PROJECTS ||--o{ TASKS : "executable work"
   TASKS o|--o{ TASKS : "parent and children in same project"
   USERS ||--o{ TASKS : "creates"
@@ -620,3 +707,14 @@ release and at most one active period per task. FKs do not cascade deletion.
 Current state/history coherence and longer cycle checks are future service rules.
 Detailed time tracking, sprints, bugs, approvals, task files and notifications
 are intentionally deferred; hours are nullable Decimal summaries only.
+
+UI executable work uses the common task engine with workstream = UI, through
+ui_task_links outside generic task scalar fields. Linked sections must belong
+to the page; both page-only and section-level duplicates are prevented.
+Same-project/UI-workstream enforcement and finalized specification retention
+are future service contracts, not implicit FK guarantees. Revisions insert
+new specification/page/section rows and retain predecessor references.
+UI staffing uses ProjectTeam; files reuse existing MinIO File/ProjectResource
+metadata with resourceType UI, without a version-specific attachment model.
+Daily UI status is a reporting snapshot, not authoritative task/project progress.
+All new FKs restrict deletion; page/section statuses share UiPageStatus.

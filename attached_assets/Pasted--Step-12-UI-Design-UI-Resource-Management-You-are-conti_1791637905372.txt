@@ -1,0 +1,1330 @@
+# Step 12 — UI Design & UI Resource Management
+
+You are continuing the database implementation of our internal ERP.
+
+## Current implementation status
+
+The following database steps are already completed:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Proposal Versions / Proposal Items
+6. Projects
+7. Project Scope / Business Analysis
+8. Project Files / Resources
+9. Project Budget / Budget Transactions
+10. Payments / Payment Requests
+11. Common Task Engine
+
+The next database step is:
+
+> **Step 12 — UI Design & UI Resource Management**
+
+Do not recreate, replace, rename, or remove any existing models.
+
+---
+
+# 1. First inspect the existing implementation
+
+Before making any changes:
+
+- Inspect the current Prisma schema.
+- Inspect all migrations.
+- Inspect `projects`.
+- Inspect `project_scope` and `project_scope_items`.
+- Inspect `project_team`.
+- Inspect `files` and `project_resources`.
+- Inspect the common `tasks` system.
+- Inspect users/departments.
+- Inspect existing enums.
+- Inspect existing database documentation.
+
+Especially check whether any UI/design models already exist.
+
+Reuse existing structures wherever appropriate.
+
+Do not blindly create duplicate models.
+
+---
+
+# 2. Business purpose
+
+The ERP needs a structured UI workflow for projects.
+
+The UI team needs to manage:
+
+- UI pages
+- UI sections
+- page requirements
+- UI resources
+- UI tasks
+- UI daily status
+- UI progress
+- UI review
+- UI completion
+- UI team/resource assignment
+- UI-related files
+- UI effort/status information
+
+The architecture must integrate with the existing:
+
+```text id="3y6k8a"
+Project
+Project Scope
+Project Team
+Files
+Tasks
+```
+
+---
+
+# 3. Important architecture rule
+
+Do NOT create a separate task system.
+
+The existing common task engine from Step 11 must be reused.
+
+Conceptually:
+
+```text id="q8f4m2"
+Project
+   │
+   ├── UI Specification
+   │
+   ├── UI Pages
+   │
+   ├── UI Sections
+   │
+   └── Common Tasks
+          ↓
+       UI workstream
+```
+
+UI-specific metadata belongs in UI tables.
+
+Actual executable work belongs in the common `tasks` table.
+
+---
+
+# 4. UI workflow model
+
+The database should support this conceptual workflow:
+
+```text id="u2n7p5"
+Project
+   ↓
+UI Specification
+   ↓
+UI Pages
+   ↓
+UI Sections
+   ↓
+UI Tasks
+   ↓
+Daily Status / Progress
+   ↓
+Review
+   ↓
+Completed
+```
+
+Do not implement the complete workflow engine yet.
+
+Only create the domain data structures.
+
+---
+
+# 5. Create `project_ui`
+
+Create a project-level UI specification.
+
+Recommended:
+
+```text id="v5m8q2"
+project_ui
+```
+
+Fields:
+
+```text id="f7n3x9"
+id
+project_id
+version_number
+title
+description
+status
+created_by_id
+approved_by_id
+approved_at
+created_at
+updated_at
+```
+
+---
+
+# 6. `project_ui` purpose
+
+This represents the UI design definition for the project.
+
+It should contain information such as:
+
+- UI title
+- design description
+- UI requirements
+- design status
+- version
+- approval state
+
+Do not store individual page definitions directly in this table.
+
+Pages belong in a separate table.
+
+---
+
+# 7. UI status
+
+Create an enum:
+
+```text id="m3q8v6"
+ui_status
+```
+
+Recommended values:
+
+```text id="w7p2n4"
+DRAFT
+IN_PROGRESS
+IN_REVIEW
+APPROVED
+REWORK
+COMPLETED
+ON_HOLD
+CANCELLED
+```
+
+Do not create dozens of UI-specific statuses.
+
+---
+
+# 8. UI versioning
+
+`version_number` should support revisions.
+
+Example:
+
+```text id="r4k9m1"
+UI Version 1
+UI Version 2
+UI Version 3
+```
+
+Use:
+
+```text id="x8p3v7"
+project_id + version_number
+```
+
+as a unique constraint.
+
+Do not overwrite historical UI specifications.
+
+---
+
+# 9. UI approval metadata
+
+Support:
+
+```text id="h5m2q8"
+approved_by_id
+approved_at
+```
+
+Both nullable.
+
+Reference:
+
+```text id="p7w3n9"
+users.id
+```
+
+Do NOT create the generic approval engine yet.
+
+---
+
+# 10. Create `ui_pages`
+
+Create:
+
+```text id="c9x4m7"
+ui_pages
+```
+
+Recommended fields:
+
+```text id="t5n8q2"
+id
+project_ui_id
+name
+slug
+page_type
+description
+url
+sort_order
+status
+is_required
+created_by_id
+created_at
+updated_at
+```
+
+---
+
+# 11. Page purpose
+
+Examples:
+
+```text id="n2v6p8"
+Home
+About Us
+Services
+Contact
+Login
+Dashboard
+Products
+Product Details
+Checkout
+```
+
+Each page belongs to one `project_ui`.
+
+---
+
+# 12. Page type
+
+Create:
+
+```text id="w8m3q5"
+ui_page_type
+```
+
+Recommended:
+
+```text id="j4p7x2"
+PUBLIC
+AUTHENTICATION
+DASHBOARD
+ADMIN
+CONTENT
+E_COMMERCE
+SYSTEM
+OTHER
+```
+
+Keep this generic.
+
+---
+
+# 13. Page URL
+
+`url` should be nullable.
+
+Some UI pages may not have a finalized URL during design.
+
+Do not make it unique globally.
+
+Two projects can have:
+
+```text id="b7k2m9"
+/about
+```
+
+without conflict.
+
+If uniqueness is required, it should be scoped to the project.
+
+---
+
+# 14. Page status
+
+Create:
+
+```text id="q5v8n3"
+ui_page_status
+```
+
+Recommended:
+
+```text id="s7m2p9"
+PLANNED
+IN_DESIGN
+IN_REVIEW
+APPROVED
+REWORK
+COMPLETED
+CANCELLED
+```
+
+---
+
+# 15. Required page
+
+Create:
+
+```text id="x4n8q6"
+is_required
+```
+
+Boolean.
+
+This allows the team to distinguish:
+
+```text id="m2p7v5"
+mandatory project page
+```
+
+from:
+
+```text id="w9k3x1"
+optional page
+```
+
+---
+
+# 16. Create `ui_sections`
+
+A page contains sections.
+
+Create:
+
+```text id="r6m3q8"
+ui_sections
+```
+
+Recommended fields:
+
+```text id="v2p7n5"
+id
+ui_page_id
+name
+description
+section_type
+sort_order
+status
+is_required
+created_by_id
+created_at
+updated_at
+```
+
+---
+
+# 17. Section examples
+
+Examples:
+
+```text id="f8q3m1"
+Hero
+Navigation
+About
+Services
+Features
+Testimonials
+Pricing
+FAQ
+Contact
+Footer
+```
+
+This allows the UI team to define the page structure before development.
+
+---
+
+# 18. Section type
+
+Create:
+
+```text id="k5x8n2"
+ui_section_type
+```
+
+Recommended:
+
+```text id="y7m4p9"
+HEADER
+NAVIGATION
+HERO
+CONTENT
+FEATURES
+GALLERY
+TESTIMONIALS
+PRICING
+FORM
+CTA
+FOOTER
+CUSTOM
+```
+
+Do not make this excessively detailed.
+
+---
+
+# 19. Section status
+
+Reuse the page status enum if the lifecycle is identical.
+
+If the existing Prisma design makes a separate enum cleaner, use:
+
+```text id="p3v8m2"
+PLANNED
+IN_DESIGN
+IN_REVIEW
+APPROVED
+REWORK
+COMPLETED
+CANCELLED
+```
+
+Avoid duplicate enums if the existing architecture can safely reuse one.
+
+---
+
+# 20. UI task integration
+
+Do NOT create:
+
+```text id="w7q2n8"
+ui_tasks
+```
+
+Instead use the common:
+
+```text id="n5m3x9"
+tasks
+```
+
+with:
+
+```text id="q8p4v2"
+workstream = UI
+```
+
+and appropriate:
+
+```text id="c7m2n6"
+task_type
+```
+
+Examples:
+
+```text id="v9x3p5"
+Design homepage
+Review homepage
+Revise homepage
+Design mobile responsive layout
+Prepare design handoff
+```
+
+---
+
+# 21. Link tasks to UI pages
+
+The common `tasks` table needs to know which UI entity the task relates to.
+
+Do not add fields like:
+
+```text id="m5q8x2"
+ui_page_id
+ui_section_id
+```
+
+to `tasks` if this would make the common task engine tightly coupled to UI.
+
+Instead, create a domain relationship model:
+
+```text id="r8v3p6"
+ui_task_links
+```
+
+Recommended:
+
+```text id="n4m7x2"
+id
+task_id
+ui_page_id
+ui_section_id
+created_at
+```
+
+Rules:
+
+- `task_id` required
+- `ui_page_id` required
+- `ui_section_id` nullable
+
+This allows:
+
+```text id="y5q2n8"
+Task → Page
+```
+
+or:
+
+```text id="w3m7p4"
+Task → Page → Section
+```
+
+without polluting the generic task model.
+
+---
+
+# 22. UI page/section task examples
+
+Example:
+
+```text id="c8p4x1"
+Task:
+Design Homepage
+
+UI Page:
+Homepage
+
+UI Section:
+Hero
+```
+
+Another:
+
+```text id="m7v2q5"
+Task:
+Review Homepage
+
+UI Page:
+Homepage
+
+UI Section:
+null
+```
+
+This design keeps the common task engine reusable.
+
+---
+
+# 23. UI daily status
+
+The requirements include UI daily status tracking.
+
+Create:
+
+```text id="x6n3p8"
+ui_daily_status
+```
+
+Recommended fields:
+
+```text id="q4m8v2"
+id
+project_ui_id
+status_date
+status
+summary
+blockers
+completion_percentage
+created_by_id
+created_at
+updated_at
+```
+
+---
+
+# 24. Daily status purpose
+
+Example:
+
+```text id="v8p3m6"
+Date:
+2026-10-10
+
+Status:
+IN_PROGRESS
+
+Summary:
+Homepage and About page completed.
+
+Blockers:
+Waiting for client images.
+
+Completion:
+65%
+```
+
+This is a daily reporting snapshot.
+
+It is NOT the authoritative task progress.
+
+---
+
+# 25. Completion percentage
+
+For `ui_daily_status.completion_percentage`:
+
+Use an appropriate Decimal type or integer representation according to existing project conventions.
+
+A simple integer percentage is acceptable:
+
+```text id="n3x7q2"
+0
+25
+50
+75
+100
+```
+
+Add sensible validation in the application layer:
+
+```text id="r9m4p6"
+0 <= percentage <= 100
+```
+
+Do not use this field as the source of truth for project-wide progress.
+
+---
+
+# 26. Daily status uniqueness
+
+A project UI should normally have at most one daily status for a date.
+
+Use:
+
+```text id="m5q8v3"
+project_ui_id + status_date
+```
+
+as a unique constraint.
+
+This prevents duplicate daily status entries for the same UI specification/date.
+
+---
+
+# 27. UI resources
+
+Do NOT create a new storage system.
+
+Reuse:
+
+```text id="k7p2m9"
+files
+project_resources
+```
+
+UI files can be classified using the existing project resource architecture.
+
+If the existing `resource_type` enum already supports:
+
+```text id="d3x8n4"
+UI
+```
+
+reuse it.
+
+Do not create duplicate file metadata.
+
+---
+
+# 28. UI design links
+
+The UI team may need:
+
+- Figma links
+- prototype links
+- design URLs
+- external references
+
+Do not put arbitrary links inside the `files` table.
+
+Create a lightweight:
+
+```text id="w4m9p2"
+ui_design_links
+```
+
+Recommended:
+
+```text id="n8q3v7"
+id
+project_ui_id
+title
+url
+link_type
+description
+created_by_id
+created_at
+updated_at
+```
+
+---
+
+# 29. Design link type
+
+Create:
+
+```text id="x2p7m5"
+ui_design_link_type
+```
+
+Recommended:
+
+```text id="c9m4v8"
+FIGMA
+PROTOTYPE
+DESIGN_SYSTEM
+REFERENCE
+OTHER
+```
+
+Store URLs as strings.
+
+Do not attempt to validate external URLs at the database level beyond normal application validation.
+
+---
+
+# 30. UI team assignment
+
+Do NOT create separate UI-specific employee assignment tables unless required.
+
+The existing:
+
+```text id="t8m3q6"
+project_team
+```
+
+already supports:
+
+```text id="v5p2n9"
+UI_TL
+UI_RESOURCE
+```
+
+Use that as the authoritative project team assignment.
+
+UI-specific pages/tasks can reference users through existing task assignments.
+
+Do not duplicate:
+
+```text id="r6x9m3"
+ui_team_members
+```
+
+---
+
+# 31. UI resource ownership
+
+Do not add:
+
+```text id="k3v8p1"
+designer_id
+ui_tl_id
+```
+
+to `project_ui`.
+
+The project team and common task engine already provide assignment mechanisms.
+
+Keep `project_ui` focused on the UI domain definition.
+
+---
+
+# 32. UI progress
+
+Do NOT add:
+
+```text id="m9q2x7"
+progress_percentage
+```
+
+to `projects`.
+
+Do not create a permanent source-of-truth UI progress field unless there is a strong domain requirement.
+
+Current UI progress can eventually be derived from:
+
+- UI page statuses
+- UI tasks
+- daily status
+- approved/reviewed work
+
+---
+
+# 33. UI history
+
+Do not create separate history tables for every UI entity unless required.
+
+At minimum:
+
+- UI daily status provides reporting history.
+- Common tasks provide task status history.
+- Existing project status history covers project-level state.
+
+If later audit requirements need page/section status history, it can be added deliberately.
+
+Do not over-engineer this step.
+
+---
+
+# 34. UI review
+
+Do not create a separate approval engine.
+
+Use:
+
+```text id="x7p3m8"
+status = IN_REVIEW
+```
+
+and the existing `approved_by_id / approved_at` on `project_ui`.
+
+Formal multi-step approval will come later.
+
+---
+
+# 35. UI scope relationship
+
+UI pages should be consistent with:
+
+```text id="w4n8q2"
+project_scope_items
+```
+
+but do not create a direct mandatory foreign key unless the existing business process requires it.
+
+Reason:
+
+A scope item such as:
+
+```text id="j3p7v9"
+Payment Integration
+```
+
+may not map one-to-one to a page.
+
+The relationship can be handled at the application/domain level later.
+
+---
+
+# 36. Suggested conceptual ER structure
+
+The resulting structure should look like:
+
+```text id="q9m4x7"
+PROJECT
+   │
+   ├── PROJECT_UI
+   │      │
+   │      ├── UI_PAGES
+   │      │      │
+   │      │      └── UI_SECTIONS
+   │      │
+   │      ├── UI_DAILY_STATUS
+   │      │
+   │      └── UI_DESIGN_LINKS
+   │
+   └── TASKS
+          │
+          └── UI_TASK_LINKS
+                  ├── UI_PAGE
+                  └── UI_SECTION
+```
+
+---
+
+# 37. Indexes
+
+Add appropriate indexes.
+
+### `project_ui`
+
+```text id="m8p3v6"
+project_id
+status
+created_at
+```
+
+### `ui_pages`
+
+```text id="x5q9n2"
+project_ui_id
+status
+page_type
+sort_order
+```
+
+### `ui_sections`
+
+```text id="v7m4p1"
+ui_page_id
+status
+section_type
+sort_order
+```
+
+### `ui_task_links`
+
+```text id="q2n8m5"
+task_id
+ui_page_id
+ui_section_id
+```
+
+### `ui_daily_status`
+
+```text id="p6x3v9"
+project_ui_id
+status_date
+```
+
+### `ui_design_links`
+
+```text id="w8m2q4"
+project_ui_id
+link_type
+created_at
+```
+
+Do not add excessive indexes.
+
+---
+
+# 38. Important constraints
+
+At minimum:
+
+```text id="n3v7q2"
+project_ui.project_id + version_number
+```
+
+should be unique.
+
+For daily status:
+
+```text id="x8m4p6"
+project_ui_id + status_date
+```
+
+should be unique.
+
+For UI task links, prevent accidental duplicate links where appropriate.
+
+For example:
+
+```text id="r5q9m3"
+task_id + ui_page_id + ui_section_id
+```
+
+If nullable uniqueness is problematic in PostgreSQL/Prisma, implement a sensible application-level duplicate check and document it.
+
+---
+
+# 39. Foreign keys
+
+Expected relationships:
+
+```text id="k7m3x8"
+project_ui.project_id
+    → projects.id
+
+project_ui.created_by_id
+    → users.id
+
+project_ui.approved_by_id
+    → users.id
+
+ui_pages.project_ui_id
+    → project_ui.id
+
+ui_pages.created_by_id
+    → users.id
+
+ui_sections.ui_page_id
+    → ui_pages.id
+
+ui_sections.created_by_id
+    → users.id
+
+ui_task_links.task_id
+    → tasks.id
+
+ui_task_links.ui_page_id
+    → ui_pages.id
+
+ui_task_links.ui_section_id
+    → ui_sections.id
+
+ui_daily_status.project_ui_id
+    → project_ui.id
+
+ui_daily_status.created_by_id
+    → users.id
+
+ui_design_links.project_ui_id
+    → project_ui.id
+
+ui_design_links.created_by_id
+    → users.id
+```
+
+Follow the project's existing Prisma relation conventions.
+
+---
+
+# 40. No actual Figma API integration
+
+Do NOT implement:
+
+- Figma API
+- Figma authentication
+- Figma webhook
+- automatic Figma synchronization
+
+Only store design links.
+
+Integration can be implemented later if required.
+
+---
+
+# 41. No frontend implementation
+
+This step is database-only.
+
+Do NOT build:
+
+- UI dashboard
+- UI designer screen
+- page builder
+- drag-and-drop interface
+- Kanban board
+- daily status UI
+- Figma preview
+
+Those come later.
+
+---
+
+# 42. No notifications
+
+Do not implement:
+
+- UI assignment notifications
+- review notifications
+- approval notifications
+- daily status reminders
+
+Those belong to the notification system.
+
+---
+
+# 43. No sprint system
+
+Do not create:
+
+```text id="w2m8p5"
+ui_sprints
+sprint_tasks
+sprint_approvals
+```
+
+The common task engine is the foundation.
+
+Sprint-specific architecture will be handled later where necessary.
+
+---
+
+# 44. Migration
+
+Create a new incremental Prisma migration.
+
+Do NOT:
+
+- reset the database
+- delete previous migrations
+- modify previous migrations
+- drop existing tables
+- recreate the Prisma schema
+- remove existing relations
+
+Only add the structures required for Step 12.
+
+---
+
+# 45. Validation
+
+Run:
+
+```bash id="m8x3q6"
+npx prisma validate
+```
+
+Then:
+
+- generate Prisma Client
+- run migration
+- run existing tests
+- run type checking if configured
+
+Verify:
+
+- self/foreign relations compile
+- unique constraints work
+- UI task links reference valid tasks/pages/sections
+- daily status uniqueness works
+- existing models remain valid
+- no previous migration was modified
+
+---
+
+# 46. Documentation
+
+Update:
+
+```text id="q4n8v2"
+/docs/database/README.md
+/docs/database/ERD.md
+/docs/database/DECISIONS.md
+```
+
+Document:
+
+### UI architecture
+
+```text id="w7m3p9"
+Project
+   ↓
+Project UI
+   ↓
+Pages
+   ↓
+Sections
+```
+
+Document:
+
+> UI executable work uses the common task engine with `workstream = UI`.
+
+Document:
+
+> UI task relationships are kept outside the generic task table through `ui_task_links`.
+
+Document:
+
+> UI files reuse the existing MinIO metadata/file architecture.
+
+Document:
+
+> UI daily status is a reporting snapshot and is not the authoritative source for task/project progress.
+
+---
+
+# 47. Final verification report
+
+After implementation report:
+
+## Models created
+
+Expected:
+
+```text id="f8m3q7"
+project_ui
+ui_pages
+ui_sections
+ui_task_links
+ui_daily_status
+ui_design_links
+```
+
+Only create models that are not already represented by existing structures.
+
+## Enums created
+
+Expected:
+
+```text id="p2v7m9"
+ui_status
+ui_page_type
+ui_page_status
+ui_section_type
+ui_design_link_type
+```
+
+Reuse existing enums where appropriate.
+
+## Relationships
+
+List all relationships.
+
+## Indexes
+
+List important indexes.
+
+## Constraints
+
+List important unique constraints and foreign keys.
+
+## Migration
+
+Report:
+
+```text id="n5x8q3"
+migration name
+migration status
+```
+
+## Validation
+
+Report:
+
+```text id="m7q2v9"
+Prisma validation
+migration result
+Prisma Client generation
+tests/type checks
+```
+
+## Documentation
+
+List modified documentation files.
+
+## Design decisions
+
+Explain any deviation from this specification.
+
+---
+
+# Critical rules
+
+1. Do not recreate previous models.
+2. Do not modify previous migrations.
+3. Do not reset the database.
+4. Reuse the common task engine.
+5. Do not create `ui_tasks`.
+6. Do not create a second file-storage system.
+7. Reuse `files` and `project_resources`.
+8. Keep UI pages and sections separate.
+9. Preserve UI specification versions.
+10. Support daily UI status history.
+11. Do not store project-wide progress as source-of-truth data.
+12. Do not create sprint models yet.
+13. Do not create Figma API integration.
+14. Do not create the generic approval engine yet.
+15. Do not create notifications yet.
+16. Do not introduce AWS.
+17. Follow the existing Prisma architecture.
+18. Inspect the current implementation before modifying it.
+19. Keep the migration incremental and production-safe.
+
+# STOP CONDITION
+
+After completing **Step 12 — UI Design & UI Resource Management**, stop.
+
+Do not automatically continue to Step 13.
+
+Wait for the next instruction.

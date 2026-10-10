@@ -720,3 +720,47 @@
 - **Scope:** No progress columns, sprint/bug/UI/UX/department-specific task
   models, detailed time tracking, Hubstaff API, generic approval, notification,
   task-budget coupling, AWS service, or application task-management behavior.
+
+## Step 12 — UI design domain foundation
+
+- **Reuse:** ProjectTeam UI_TL/UI_RESOURCE, TaskWorkstream.UI, common task
+  status/assignment history and ProjectResourceType.UI already exist. Six UI
+  metadata tables are new; no parallel task, staffing or storage system.
+- **Versions:** ProjectUi is many-to-one Project, unique (projectId,versionNumber)
+  with positive versions. Revision writers must serialize version allocation,
+  INSERT a new specification and copy its graph without modifying finalized
+  predecessors. No isCurrent flag or automatic version copier is needed.
+  This is a future service retention contract, not a database immutability
+  guarantee; draft editing is valid and unused leaves can physically delete.
+- **Page identity:** Required name/slug/title, optional descriptions and page URL.
+  Slugs are unique within a specification revision; URLs are not unique.
+  This supports reuse across projects and preserves revision independence.
+- **Statuses:** UiPageStatus is shared with sections; UiStatus is also used for
+  reporting snapshots. No separate section/daily-status enum or history table.
+- **Task associations:** UiTaskLink requires task/page and optionally section.
+  Composite section/page FK validates containment. Triple uniqueness plus a SQL
+  partial unique index prevents duplicates for both concrete and NULL sections.
+  Task/page-only and multiple section associations may coexist. Common Task has
+  only an inverse Prisma relation, not UI scalar columns.
+- **Link policy boundary:** Future services must require workstream UI and
+  same-project Task/specification, and revalidate ownership edits. FKs alone
+  do not enforce these cross-table classifications. No recursive or lifecycle
+  triggers are added to the shared engine.
+- **Reports:** DATE statusDate, unique specification/date, required text summary,
+  optional blockers and nullable integer completionPercentage (CHECK 0..100).
+  Unknown is NULL rather than an invented zero. Snapshots may be corrected;
+  updatedAt is not an immutable audit log. Progress is not project source of truth.
+- **Approval:** Optional approver/timestamp are paired by a SQL check, FK
+  restricts removal of the actor. Status/time consistency, multi-step approval,
+  publication and approved-content authorization remain future service work.
+- **Retention:** All new FKs use RESTRICT (section composite updates NO ACTION).
+  No cascade removes version graphs or work references. No soft-delete columns
+  or blanket history guards added beyond the requested domain fields.
+- **Files and links:** Existing MinIO File/ProjectResource metadata is reused
+  with UI classification; no duplicate upload metadata. Design URLs have their
+  own lightweight table and VARCHAR(2048), with application URL/scheme validation.
+  Files remain project-scoped; no specification-specific file association is
+  invented. Historical file references still resolve exact physical revisions.
+- **Scope and exclusions:** No mandatory page/scope-item FK, designer/uiTL
+  column, UI-specific employees, ui_tasks, sprint, frontend, Figma API, notification,
+  generic approval, permanent project/UI progress, AWS or workflow engine.

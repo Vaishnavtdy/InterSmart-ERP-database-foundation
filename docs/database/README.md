@@ -758,3 +758,99 @@ columns, second storage system, or duplicated MinIO metadata is added now.
 No sprints, QA bugs, UI/UX domain tables, developer assignments, time entries,
 Hubstaff integration, approvals, notifications, task-budget FKs, AWS, application
 workflow, API/UI, or seed records are implemented in Step 11.
+
+## UI Design & UI Resource Management (Database Step 12)
+
+Migration: `20261010131315_ui_design_resource_management`. Adds six domain
+tables and five enums; prior tables and migration files are retained unchanged.
+
+Architecture: Project → Project UI (version) → Pages → Sections.
+UI executable work uses the common task engine with `workstream = UI`.
+UI task relationships are kept outside the generic task table through
+`ui_task_links`; no ui_tasks or UI employee assignment tables exist.
+
+### Models and defaults
+
+| Model / table | Required fields (besides UUID id and timestamps) | Nullable fields |
+| --- | --- | --- |
+| ProjectUi / project_ui | projectId, versionNumber, title, status (DRAFT), createdById | description TEXT, approvedById, approvedAt |
+| UiPage / ui_pages | projectUiId, name, slug, pageType (OTHER), sortOrder (0), status (PLANNED), isRequired (true), createdById | description TEXT, url VARCHAR(2048) |
+| UiSection / ui_sections | uiPageId, name, sectionType (CUSTOM), sortOrder (0), reused UiPageStatus (PLANNED), isRequired (true), createdById | description TEXT |
+| UiTaskLink / ui_task_links | taskId, uiPageId | uiSectionId |
+| UiDailyStatus / ui_daily_status | projectUiId, statusDate DATE, status (IN_PROGRESS), summary TEXT, createdById | blockers TEXT, completionPercentage INTEGER |
+| UiDesignLink / ui_design_links | projectUiId, title, url VARCHAR(2048), linkType (OTHER), createdById | description TEXT |
+
+All IDs/FKs are UUID; createdAt defaults to now and timestamps are TIMESTAMPTZ(6).
+All models except UiTaskLink have Prisma-managed updatedAt. Raw SQL writers
+must supply/update updated_at themselves. Names/titles/slugs are VARCHAR(255).
+Date-only reporting dates are distinct from timestamped audit metadata.
+Null percentage means unknown, not zero; checks enforce 0..100 and sortOrder >= 0.
+
+### Enums
+
+- UiStatus: DRAFT, IN_PROGRESS, IN_REVIEW, APPROVED, REWORK, COMPLETED, ON_HOLD, CANCELLED.
+- UiPageType: PUBLIC, AUTHENTICATION, DASHBOARD, ADMIN, CONTENT, E_COMMERCE, SYSTEM, OTHER.
+- UiPageStatus (pages AND sections): PLANNED, IN_DESIGN, IN_REVIEW, APPROVED, REWORK, COMPLETED, CANCELLED.
+- UiSectionType: HEADER, NAVIGATION, HERO, CONTENT, FEATURES, GALLERY, TESTIMONIALS, PRICING, FORM, CTA, FOOTER, CUSTOM.
+- UiDesignLinkType: FIGMA, PROTOTYPE, DESIGN_SYSTEM, REFERENCE, OTHER.
+
+### Relationships, uniqueness and indexes
+
+ProjectUi references Project, creator User and optional approver User. Pages
+reference specification/creator; sections reference page/creator. Daily status
+and design links reference specification/creator. Task links reference common
+Task, required Page and optional Section. All 14 FKs restrict deletion.
+The composite section FK (uiPageId,uiSectionId) → (uiPageId,id) ensures a
+non-null linked section actually belongs to the linked page.
+
+Unique project/version and positive version numbers support revisions.
+Slug uniqueness is specification-scoped; the same slug in another project or
+version is valid. Page URLs are nullable and NOT unique, even within a version.
+Daily reports are unique by specification/date. Task/page/section is unique,
+with an additional SQL partial unique index for task/page WHERE section IS NULL.
+Page-only and multiple distinct section links for the same task can coexist.
+Both approval fields must be null or populated together; no status transition
+engine or approval-time policy is implied.
+
+Project/version uniqueness covers project lookup; specification status/date,
+created date, creator and approver are indexed. Pages/sections index owner/sort,
+status, type and creator. Task-link uniqueness covers task lookup; page and
+section have reverse indexes. Daily uniqueness covers specification/date,
+with date and author indexes. Design links index specification/type, created
+date and author. SQL-only checks/partial index remain in the migration.
+
+### Version retention and future service contracts
+
+Revisions must INSERT a new ProjectUi with a new project-scoped version number,
+copying pages/sections and design links into new rows as appropriate; never
+repurpose an old ID or overwrite a finalized specification graph. Keep old
+daily reports and task links attached to the exact version's pages/sections.
+Version allocation must serialize per project. Draft editing remains possible.
+RESTRICT prevents accidental cascading deletion but does NOT make historical
+content immutable or ban deletion of unused leaf rows. Finalized-version write
+authorization and retention must be enforced by future services; no lifecycle
+triggers or blanket immutable-page policy are introduced in this foundation.
+
+Future link writers must validate that the Task belongs to the specification's
+Project and has workstream UI, including when changing linked task/project
+ownership later. FKs enforce entity existence and section/page consistency,
+not task workstream or project alignment. Task state, assignments and their
+history continue to follow the common task engine's atomic-write contracts.
+
+UI files reuse the existing MinIO metadata/file architecture:
+File + ProjectResource with resourceType UI. Resource references pin physical
+file revisions; no extra storage tables, binary fields or task/page attachment
+models are added. File resources remain project-scoped, not automatically
+bound to a specification revision. ProjectTeam UI_TL/UI_RESOURCE is authoritative
+for project staffing; task assignments cover executable work.
+
+UI daily status is a reporting snapshot and is not the authoritative source
+for task/project progress. No permanent progress column is added to Project
+or ProjectUi. Reports may be corrected via updatedAt; they are not an immutable
+audit log. Percentage does not trigger task/page completion.
+
+Scope item consistency remains a future domain rule without a mandatory FK.
+Design links contain external URLs, not file metadata; URL/scheme safety is
+application validation, with no database HTTP calls or Figma integration.
+No workflow, frontend, API, notifications, sprints, generic approvals, AWS,
+additional status-history tables or seed records are introduced.

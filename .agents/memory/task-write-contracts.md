@@ -29,3 +29,15 @@ authorization, longer cycles, scheduling, or symmetric related-link policy.
 blocking cycles before committing, and specify allowed cross-project links.
 Treat related links as directed stored associations unless a future policy
 normalizes them; don't introduce recursive triggers or a scheduler implicitly.
+
+UI task links require same-project ownership and workstream UI, but those
+cross-table classification rules are a future service contract, not an FK
+guarantee. Validate subsequent ownership/workstream edits as well as link creation.
+
+**Why:** The common task engine remains domain-neutral; UI links enforce valid
+entities and section/page containment without implementing lifecycle workflows.
+A link validated once can become invalid when either endpoint is later moved.
+
+**How to apply:** Check existing UI associations before changing task project or
+workstream, or moving UI specifications/pages. Serialize competing ownership
+edits and link writes; do not assume a retained FK proves classification alignment.

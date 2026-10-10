@@ -96,6 +96,12 @@ model User {
   taskStatusChanges           TaskStatusHistory[]
   receivedTaskAssignments     TaskAssignment[]              @relation("TaskAssignmentAssignee")
   issuedTaskAssignments       TaskAssignment[]              @relation("TaskAssignmentAuthor")
+  createdProjectUis           ProjectUi[]                   @relation("UiCreator")
+  approvedProjectUis          ProjectUi[]                   @relation("UiApprover")
+  createdUiPages              UiPage[]
+  createdUiSections           UiSection[]
+  uiDailyStatuses             UiDailyStatus[]
+  createdUiDesignLinks        UiDesignLink[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -494,6 +500,7 @@ model Project {
   paymentRequests      PaymentRequest[]
   payments             Payment[]
   tasks                Task[]
+  uiSpecifications     ProjectUi[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -1113,6 +1120,7 @@ model Task {
   comments       TaskComment[]
   statusHistory  TaskStatusHistory[]
   assignments    TaskAssignment[]
+  uiLinks        UiTaskLink[]
 
   // Composite target key keeps children in their parent's project.
   @@unique([projectId, id])
@@ -1194,4 +1202,194 @@ model TaskAssignment {
   @@index([assignedById])
   @@index([assignedAt])
   @@map("task_assignments")
+}
+
+enum UiStatus {
+  DRAFT
+  IN_PROGRESS
+  IN_REVIEW
+  APPROVED
+  REWORK
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum UiPageType {
+  PUBLIC
+  AUTHENTICATION
+  DASHBOARD
+  ADMIN
+  CONTENT
+  E_COMMERCE
+  SYSTEM
+  OTHER
+}
+
+enum UiPageStatus {
+  PLANNED
+  IN_DESIGN
+  IN_REVIEW
+  APPROVED
+  REWORK
+  COMPLETED
+  CANCELLED
+}
+
+enum UiSectionType {
+  HEADER
+  NAVIGATION
+  HERO
+  CONTENT
+  FEATURES
+  GALLERY
+  TESTIMONIALS
+  PRICING
+  FORM
+  CTA
+  FOOTER
+  CUSTOM
+}
+
+enum UiDesignLinkType {
+  FIGMA
+  PROTOTYPE
+  DESIGN_SYSTEM
+  REFERENCE
+  OTHER
+}
+
+model ProjectUi {
+  id            String          @id @default(uuid()) @db.Uuid
+  projectId     String          @map("project_id") @db.Uuid
+  versionNumber Int             @map("version_number")
+  title         String          @db.VarChar(255)
+  description   String?         @db.Text
+  status        UiStatus        @default(DRAFT)
+  createdById   String          @map("created_by_id") @db.Uuid
+  approvedById  String?         @map("approved_by_id") @db.Uuid
+  approvedAt    DateTime?       @map("approved_at") @db.Timestamptz(6)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy     User            @relation("UiCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy    User?           @relation("UiApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  pages         UiPage[]
+  dailyStatuses UiDailyStatus[]
+  designLinks   UiDesignLink[]
+
+  @@unique([projectId, versionNumber])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([approvedById])
+  @@map("project_ui")
+}
+
+model UiPage {
+  id          String       @id @default(uuid()) @db.Uuid
+  projectUiId String       @map("project_ui_id") @db.Uuid
+  name        String       @db.VarChar(255)
+  slug        String       @db.VarChar(255)
+  pageType    UiPageType   @default(OTHER) @map("page_type")
+  description String?      @db.Text
+  url         String?      @db.VarChar(2048)
+  sortOrder   Int          @default(0) @map("sort_order")
+  status      UiPageStatus @default(PLANNED)
+  isRequired  Boolean      @default(true) @map("is_required")
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectUi   ProjectUi    @relation(fields: [projectUiId], references: [id], onDelete: Restrict)
+  createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  sections    UiSection[]
+  taskLinks   UiTaskLink[]
+
+  @@unique([projectUiId, slug])
+  @@index([projectUiId, sortOrder])
+  @@index([status])
+  @@index([pageType])
+  @@index([createdById])
+  @@map("ui_pages")
+}
+
+model UiSection {
+  id          String        @id @default(uuid()) @db.Uuid
+  uiPageId    String        @map("ui_page_id") @db.Uuid
+  name        String        @db.VarChar(255)
+  description String?       @db.Text
+  sectionType UiSectionType @default(CUSTOM) @map("section_type")
+  sortOrder   Int           @default(0) @map("sort_order")
+  status      UiPageStatus  @default(PLANNED)
+  isRequired  Boolean       @default(true) @map("is_required")
+  createdById String        @map("created_by_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  page        UiPage        @relation(fields: [uiPageId], references: [id], onDelete: Restrict)
+  createdBy   User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  taskLinks   UiTaskLink[]
+
+  // Target key enforces section/page consistency in UI task links.
+  @@unique([uiPageId, id])
+  @@index([uiPageId, sortOrder])
+  @@index([status])
+  @@index([sectionType])
+  @@index([createdById])
+  @@map("ui_sections")
+}
+
+model UiTaskLink {
+  id          String     @id @default(uuid()) @db.Uuid
+  taskId      String     @map("task_id") @db.Uuid
+  uiPageId    String     @map("ui_page_id") @db.Uuid
+  uiSectionId String?    @map("ui_section_id") @db.Uuid
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  task        Task       @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  page        UiPage     @relation(fields: [uiPageId], references: [id], onDelete: Restrict)
+  section     UiSection? @relation(fields: [uiPageId, uiSectionId], references: [uiPageId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  // A SQL partial unique index additionally prevents duplicate page-only links.
+  @@unique([taskId, uiPageId, uiSectionId])
+  @@index([uiPageId])
+  @@index([uiSectionId])
+  @@map("ui_task_links")
+}
+
+model UiDailyStatus {
+  id                   String    @id @default(uuid()) @db.Uuid
+  projectUiId          String    @map("project_ui_id") @db.Uuid
+  statusDate           DateTime  @map("status_date") @db.Date
+  status               UiStatus  @default(IN_PROGRESS)
+  summary              String    @db.Text
+  blockers             String?   @db.Text
+  completionPercentage Int?      @map("completion_percentage")
+  createdById          String    @map("created_by_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectUi            ProjectUi @relation(fields: [projectUiId], references: [id], onDelete: Restrict)
+  createdBy            User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([projectUiId, statusDate])
+  @@index([statusDate])
+  @@index([createdById])
+  @@map("ui_daily_status")
+}
+
+model UiDesignLink {
+  id          String           @id @default(uuid()) @db.Uuid
+  projectUiId String           @map("project_ui_id") @db.Uuid
+  title       String           @db.VarChar(255)
+  url         String           @db.VarChar(2048)
+  linkType    UiDesignLinkType @default(OTHER) @map("link_type")
+  description String?          @db.Text
+  createdById String           @map("created_by_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectUi   ProjectUi        @relation(fields: [projectUiId], references: [id], onDelete: Restrict)
+  createdBy   User             @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([projectUiId, linkType])
+  @@index([createdAt])
+  @@index([createdById])
+  @@map("ui_design_links")
 }

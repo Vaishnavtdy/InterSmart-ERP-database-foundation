@@ -358,3 +358,103 @@ Neither is stored on Project or mixed with budgets, tasks, or execution modules.
 - No seed changes or fake project/business-analysis records are needed.
   Preserve the partial index, checks, and snapshot-protection functions/triggers
   when reviewing future migrations.
+
+## Project Files & Resources (Database Step 8)
+
+Migration: `20261010112103_project_files_resources`, applied transactionally.
+
+This is a single-company InterSmart ERP. This step adds `File` (`files`) and
+`ProjectResource` (`project_resources`) only. Existing modules remain intact.
+
+**Future storage is self-hosted MinIO. PostgreSQL stores metadata and business
+relationships only, not binaries, base64, blobs, file bodies, or public URLs.**
+There is no MinIO client, AWS dependency, upload/download API, UI, or new
+permission/approval workflow in this step.
+
+| Table | Fields |
+| --- | --- |
+| `files` | UUID `id`, required `project_id`, stable UUID `file_series_id`, required `uploaded_by_id`; `file_name`, `original_name`, globally unique `storage_key`, configurable string `bucket`, `mime_type`; BIGINT `size_bytes`; nullable string `checksum`; `version`, `is_current`; `created_at`, `updated_at`; nullable `deleted_at` |
+| `project_resources` | UUID `id`, required `project_id`, `file_id`, stable UUID `resource_series_id`; `resource_type`, `title`; nullable `description`; `version`, `is_current`; required `uploaded_by_id`; `created_at`, `updated_at` |
+
+Files describe **where/how** physical objects are stored; resources describe
+**what** those objects mean in a project. Resources do not duplicate storage
+keys, buckets, MIME types, sizes, or checksums. Multiple business references
+may point to one file within its owning project. A composite FK
+`(project_id, file_id)` → `files(project_id, id)` rejects cross-project references.
+Project and uploader links are required. All deletion FKs are Restrict, retaining
+employee attribution and preventing cascading loss of file/resource history.
+
+Resource types: `BRAND_BOOK`, `LOGO`, `DOMAIN`, `BROCHURE`, `PROPOSAL`,
+`BUSINESS_ANALYSIS`, `UI`, `UX`, `DEVELOPMENT`, `QA`, `OTHER`.
+DOMAIN classifies an uploaded domain-information document; it does not add a
+domain-management or credentials module.
+
+### Object keys and controlled access
+
+Store the complete key using:
+
+`projects/{project-id}/{resource-type}/{uuid}-{safe-filename}`
+
+Example: `projects/8f1.../BRAND_BOOK/4a2...-brand-guidelines.pdf`.
+The future upload service must generate the UUID, sanitize names, prohibit path
+traversal/unrestricted user paths, validate object-key byte limits, and validate
+the project prefix. `original_name` is display metadata, never an object path.
+Bucket names are configuration, not an enum or a hard-coded default.
+Optional checksums support integrity and duplicate detection; checksums are
+indexed but deliberately not unique. Prefer an algorithm-tagged digest such
+as `sha256:<hex>`; algorithm validation belongs to the future service.
+
+Future access is Employee → Next.js → NestJS authorization →
+project/resource permission check → controlled MinIO access. Authorization must
+also check project/file deletion state. Persist bucket/key, not permanent public
+URLs, signed URLs, credentials, or file content.
+
+### Versions and historical retention
+
+- A new file version inserts a new row with a new object key. Reuse the stable
+  file series ID; never overwrite the old MinIO object or repoint its metadata
+  as a revision operation.
+- File revision uniqueness is `(project_id, file_series_id, version)`.
+  Resource revision uniqueness is
+  `(project_id, resource_type, resource_series_id, version)`.
+  Both series IDs default to fresh UUIDs for new assets; explicitly reuse the
+  appropriate ID for the next revision. They are grouping identifiers, not FKs
+  to another entity or an extra module.
+- Stable series IDs allow several logos/UI assets of the same type, each with
+  version 1. Names/titles are not identity keys. Version numbers are positive,
+  defaulting to 1, and `is_current` defaults to true.
+- File and resource revisions are independent: a business reference revision
+  may reuse a physical file. There is no artificial equality constraint on
+  their version numbers or current flags.
+- **One current revision per series is a future application-level rule, not
+  enforced by these tables.** The existing generator does not enable native
+  partial-index representation; this step follows the requested fallback
+  rather than introducing a migration-only current-version index. No partial
+  indexes are added for files/resources. Earlier modules' partial indexes
+  remain unchanged.
+- Future writers must serialize revisions per project/series, allocate unique
+  version numbers, insert the new object metadata/reference, and mark replaced
+  revisions non-current atomically. No such service is implemented here.
+- Soft-deleting a file must also set its own `is_current=false` (SQL check).
+  Future services must mark affected current resource references non-current
+  in the same transaction, retain historical references, and exclude
+  soft-deleted files from access/listing. This cross-table coordination is
+  not automated by the database.
+- Project soft deletion retains files and resources. No physical object
+  deletion, history cleanup, or fake seed records are introduced.
+
+### Indexes, sizes, and constraints
+
+Storage-key uniqueness also indexes object-key lookup. Files have indexes on
+project/current/deleted state, uploader, checksum, and creation time, plus
+series/version uniqueness and the owner/ID composite FK target key.
+Resources have indexes on project/type/current state, file, type, uploader,
+and creation time, plus series/type/version uniqueness. Leading composite
+columns cover project-only queries without redundant single-column indexes.
+
+`size_bytes` uses nonnegative signed BIGINT, not floating point.
+Prisma returns JavaScript bigint; future JSON APIs must serialize it explicitly
+(for example as a decimal string) rather than lose precision. Timestamps use
+TIMESTAMPTZ(6) and Prisma-maintained updatedAt. This step adds SQL checks for
+nonnegative file size, positive version numbers, and non-current soft-deleted
+files. No seed changes are required.

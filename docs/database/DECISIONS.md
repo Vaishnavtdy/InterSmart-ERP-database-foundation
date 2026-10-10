@@ -468,3 +468,82 @@
   the database cannot infer the acting employee.
 - **Dates:** All timestamps use TIMESTAMPTZ(6), with Prisma-maintained
   updatedAt fields following existing conventions.
+
+## File storage boundary (Step 8)
+
+- **Migration:** `20261010112103_project_files_resources`. Additive new tables,
+  enum, indexes, foreign keys, and checks; no prior migrations modified.
+- **Decision:** Add File, ProjectResource, and ProjectResourceType only.
+  Project ownership and both uploader links are required. Existing models
+  receive inverse Prisma relations only; no organization/global-file module
+  is added to this single-company ERP.
+- **Reason:** Files hold physical metadata; project resources hold business
+  classification. File binaries will live in self-hosted MinIO, never
+  PostgreSQL. No AWS services/SDKs or MinIO integration are introduced.
+- **Keys:** Store configurable bucket plus globally unique complete storage
+  key. Use projects/{project-id}/{resource-type}/{uuid}-{safe-filename};
+  future services generate/sanitize names, validate key byte limits and
+  project prefix, and never treat originalName as an unrestricted path.
+- **Security:** No public/signed URLs or storage credentials are stored.
+  Authorization and controlled access belong to future Next.js/NestJS/MinIO
+  services, not this database-only step.
+
+## File and resource version identity
+
+- **Decision:** Add fileSeriesId and resourceSeriesId UUID grouping identifiers,
+  defaulting to new UUIDs for new assets. Explicit reuse identifies later
+  revisions. They do not reference a separate series table.
+- **Reason:** The recommended fields lack a stable identity for multiple
+  versioned assets of the same type. A unique project/type/version rule alone
+  would prevent legitimate multiple logos or UI files; names and titles can
+  change and must not be identity keys.
+- **Unique keys:** File project/series/version; resource
+  project/type/series/version. Positive versions default to one.
+  Resource type is part of resource-series identity. Physical and business
+  versions remain independent because multiple business references may reuse
+  one physical object.
+- **History:** Create a fresh physical row/object/key per physical revision;
+  retain old rows/objects with non-current flags. No overwriting, physical
+  deletion, or garbage-collection workflow is implemented here.
+
+## Current flags and explicit enforcement limitation
+
+- **Decision:** Use ordinary Prisma-representable uniqueness/indexes for
+  version identity and queries. Do not add current-version partial indexes
+  or enable preview features/change the toolchain in this step.
+- **Reason:** The user explicitly permits application-level enforcement when
+  current-version uniqueness cannot be cleanly represented by the project's
+  current Prisma configuration. Prior migration-only partial indexes remain
+  intact; their existence does not override this step's fallback instruction.
+- **Future service contract:** Serialize writers per project/series and
+  replace current flags atomically, handling unique-version conflicts.
+  Multiple current rows are possible at the database level; this limitation
+  is intentional, not silently claimed as enforced.
+- **Future option:** With an approved representation/toolchain strategy,
+  add a partial unique file index on project/series for live current rows and
+  a resource index on project/type/series where current. Audit existing flags
+  before doing so. Do not add speculative fallback pointers/third models now.
+
+## File ownership, deletion, and numeric values
+
+- **Decision:** Composite owned-file FK from resource (projectId, fileId) to
+  file (projectId, id). The target needs explicit owner/ID uniqueness in
+  addition to the file PK, following the existing proposal ownership pattern.
+  Owned-file updates use NoAction rather than cascaded reclassification.
+- **Reason:** Separate project/file FKs would allow a resource to attach an
+  unrelated project's file. Many references to one file are allowed; fileId
+  is intentionally not unique.
+- **Deletion:** All new relationships use Restrict. File soft deletion retains
+  metadata and references; project soft deletion retains the entire module.
+  SQL requires a deleted file to be non-current. Resource visibility also
+  depends on its referenced file's deletion state. Future soft-delete writers
+  clear affected current references transactionally; no cross-table flag
+  synchronization or MinIO deletion is implemented.
+- **Values:** Nonnegative signed BIGINT sizes support large files without
+  floating-point loss. Future JSON serializers must handle bigint explicitly.
+  Checksum is a nullable string, indexed but non-unique, allowing legitimate
+  repeated content across revisions/resources. Bucket remains a free string.
+- **Indexes:** Leading project prefixes cover project-only lookup; explicit
+  file/uploader/type/checksum/time indexes support references, attribution,
+  category views, integrity lookup, and chronological queries. No duplicate
+  index is added solely for a field already covered by a unique index.

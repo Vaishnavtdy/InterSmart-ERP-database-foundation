@@ -41,6 +41,10 @@ single-organization PostgreSQL database.
 
 ## Product
 
+This is a single-company ERP for InterSmart. Future file binaries belong in
+self-hosted MinIO; PostgreSQL stores metadata and business relationships only.
+Do not introduce AWS services or SDKs for project file storage.
+
 The internal ERP is intended to manage the complete InterSmart business
 lifecycle, including external customers, sales, projects, accounts, PMO, UI,
 UX, development, QA, and HR. Implement each module only when explicitly

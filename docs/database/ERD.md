@@ -2,6 +2,45 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ FILES : "owns physical metadata"
+  USERS ||--o{ FILES : "uploads"
+  PROJECTS ||--o{ PROJECT_RESOURCES : "classifies resources"
+  FILES ||--o{ PROJECT_RESOURCES : "same-project business references"
+  USERS ||--o{ PROJECT_RESOURCES : "uploads resource reference"
+
+  FILES {
+    uuid id PK
+    uuid project_id FK
+    uuid file_series_id
+    uuid uploaded_by_id FK
+    string file_name
+    string original_name
+    string storage_key UK
+    string bucket
+    string mime_type
+    bigint size_bytes
+    string checksum
+    int version
+    boolean is_current
+    timestamptz created_at
+    timestamptz updated_at
+    timestamptz deleted_at
+  }
+
+  PROJECT_RESOURCES {
+    uuid id PK
+    uuid project_id FK
+    uuid file_id FK
+    uuid resource_series_id
+    enum resource_type
+    string title
+    string description
+    int version
+    boolean is_current
+    uuid uploaded_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
   DEPARTMENTS ||--o{ USERS : "has employees"
   USERS o|--o{ USERS : "manages"
   USERS ||--o| EMPLOYEE_PROFILES : "has profile"
@@ -356,3 +395,11 @@ APPROVED status per project. Approved scope content and items remain frozen
 after supersession. Business Analysis has one unique project reference and
 separate multiple competitor records; project soft deletion preserves both
 scope history and analysis.
+
+Files hold MinIO bucket/key metadata, never binaries or permanent public URLs.
+Resources hold classification, not duplicate physical storage metadata.
+Resource `(project_id, file_id)` must reference a file's `(project_id, id)`.
+Stable series identifiers support multiple assets per type with independent
+version histories. File project/series/version and resource
+project/type/series/version are unique; at-most-one current per series remains
+a future application rule. Restrict FKs and file soft deletion preserve rows.

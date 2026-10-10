@@ -1,0 +1,707 @@
+# Step 8 — Project Files & Resources
+
+You are continuing the database implementation of our internal ERP.
+
+## Important context
+
+This is a **single-company ERP for InterSmart**.
+
+Previous database steps have already been implemented:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Proposal Versions / Proposal Items
+6. Projects
+7. Project Scope / Business Analysis
+
+Do NOT recreate, replace, rename, or remove any existing models.
+
+The next step is:
+
+> **Step 8 — Project Files & Resources**
+
+---
+
+# 1. First inspect the existing implementation
+
+Before making any changes:
+
+- Inspect the current Prisma schema.
+- Inspect all existing migrations.
+- Inspect the existing database documentation.
+- Inspect existing project/customer/proposal/scope models.
+- Check existing naming conventions.
+- Check existing enums.
+- Check existing relation patterns.
+- Check existing UUID/timestamp conventions.
+
+Do not assume the previous schema.
+
+Use the existing implementation as the source of truth.
+
+---
+
+# 2. Goal of this step
+
+We need database support for project-related files and resources.
+
+Examples:
+
+- Brand books
+- Logos
+- Brochures
+- Domain information
+- Proposal documents
+- Business analysis documents
+- UI resources
+- UX resources
+- Development resources
+- QA resources
+- Other project documents/assets
+
+### Important storage architecture
+
+Actual file binaries will eventually be stored in:
+
+> **MinIO**
+
+PostgreSQL must store **only file metadata and business relationships**.
+
+Do NOT store binary file contents, base64 data, blobs, or large file data inside PostgreSQL.
+
+Do NOT introduce AWS S3 or any AWS SDK.
+
+The storage abstraction should remain compatible with self-hosted MinIO.
+
+---
+
+# 3. Create the `files` model
+
+Create a `files` table/model representing the physical stored file.
+
+Recommended fields:
+
+```text
+id
+project_id
+uploaded_by_id
+file_name
+original_name
+storage_key
+bucket
+mime_type
+size_bytes
+checksum
+version
+is_current
+created_at
+updated_at
+deleted_at
+```
+
+### Field requirements
+
+#### `id`
+
+- UUID
+- Primary key
+
+#### `project_id`
+
+- Foreign key to `projects`
+- A project file normally belongs to a project
+- Follow the existing relation conventions
+
+If the existing architecture strongly benefits from allowing non-project files, document that decision before making the field nullable. Do not introduce unnecessary global file management.
+
+#### `uploaded_by_id`
+
+- Foreign key to `users`
+- Required
+- Represents the employee who uploaded the file
+
+#### `file_name`
+
+The internal/safe filename used by the storage layer.
+
+#### `original_name`
+
+The original filename uploaded by the employee.
+
+Example:
+
+```text
+Company_Profile.pdf
+```
+
+#### `storage_key`
+
+The MinIO object key.
+
+Example:
+
+```text
+projects/{project-id}/brand-book/{uuid}-Company_Profile.pdf
+```
+
+This must be unique.
+
+#### `bucket`
+
+The MinIO bucket containing the object.
+
+Example:
+
+```text
+company-files
+```
+
+Do not hard-code this value into the schema as an enum because the storage configuration may change.
+
+#### `mime_type`
+
+Example:
+
+```text
+application/pdf
+image/png
+image/jpeg
+application/vnd.openxmlformats-officedocument.wordprocessingml.document
+```
+
+#### `size_bytes`
+
+Use an appropriate integer type capable of storing large file sizes.
+
+Do not use floating point.
+
+#### `checksum`
+
+Store the checksum/hash of the stored file when available.
+
+Use a string field.
+
+This can later be used for:
+
+- duplicate detection
+- integrity verification
+- upload validation
+
+#### `version`
+
+Integer version number.
+
+Example:
+
+```text
+1
+2
+3
+```
+
+#### `is_current`
+
+Boolean indicating whether this is the current version.
+
+Historical files must not be physically overwritten when versioning is used.
+
+#### `deleted_at`
+
+Nullable soft-delete timestamp, following the existing project/database conventions.
+
+---
+
+# 4. Create the `project_resources` model
+
+Create a separate business-level resource model.
+
+The purpose of this table is to classify a file according to how it is used inside the project.
+
+Recommended fields:
+
+```text
+id
+project_id
+file_id
+resource_type
+title
+description
+version
+is_current
+uploaded_by_id
+created_at
+updated_at
+```
+
+### Relationships
+
+```text
+project_resources.project_id
+    -> projects.id
+
+project_resources.file_id
+    -> files.id
+
+project_resources.uploaded_by_id
+    -> users.id
+```
+
+---
+
+# 5. Resource types
+
+Create an enum for project resource types.
+
+Use:
+
+```text
+BRAND_BOOK
+LOGO
+DOMAIN
+BROCHURE
+PROPOSAL
+BUSINESS_ANALYSIS
+UI
+UX
+DEVELOPMENT
+QA
+OTHER
+```
+
+Do not add department-specific resource types unless they are genuinely required by the current architecture.
+
+The goal is to keep this model reusable.
+
+---
+
+# 6. Why separate `files` and `project_resources`
+
+Keep the responsibilities separate.
+
+### `files`
+
+Represents:
+
+> Where and how the physical file is stored.
+
+Example:
+
+```text
+storage_key
+bucket
+mime_type
+size_bytes
+checksum
+```
+
+### `project_resources`
+
+Represents:
+
+> What the file means to the project.
+
+Example:
+
+```text
+resource_type = BRAND_BOOK
+title = "Client Brand Guidelines"
+```
+
+This separation will allow us later to support:
+
+- multiple business references to files
+- version history
+- controlled access
+- MinIO storage
+- resource categorization
+- future file approval workflows
+- project-specific resource views
+
+Do not duplicate MinIO metadata unnecessarily in `project_resources`.
+
+---
+
+# 7. File versioning
+
+Design the models so that a new version does not overwrite the previous physical file.
+
+Example:
+
+```text
+Brand Book v1
+Brand Book v2
+Brand Book v3
+```
+
+All historical versions should remain represented in the database.
+
+The current version should be identifiable using:
+
+```text
+is_current = true
+```
+
+Older versions:
+
+```text
+is_current = false
+```
+
+Do not physically delete old versions as part of this step.
+
+If enforcing "only one current version" requires a PostgreSQL partial unique index that Prisma cannot cleanly represent using the project's current Prisma version/configuration, do not introduce a fragile workaround.
+
+Instead:
+
+- maintain the application-level rule
+- add the normal indexes/constraints that Prisma supports
+- document the limitation and future enforcement option
+
+---
+
+# 8. MinIO storage key convention
+
+Document a standard storage-key structure.
+
+Recommended pattern:
+
+```text
+projects/{project-id}/{resource-type}/{uuid}-{safe-filename}
+```
+
+Example:
+
+```text
+projects/8f1.../BRAND_BOOK/4a2...-brand-guidelines.pdf
+```
+
+The database should store the complete `storage_key`.
+
+Do not depend on the original filename being unique.
+
+Do not allow user-provided filenames to become unrestricted storage paths.
+
+The future upload service will sanitize filenames and generate the unique object key.
+
+---
+
+# 9. Security considerations
+
+The database design must support secure file access.
+
+Do NOT design files as publicly accessible URLs.
+
+Do NOT store permanent public URLs as the source of truth.
+
+Future application flow should be:
+
+```text
+Employee
+   ↓
+Next.js
+   ↓
+NestJS authorization
+   ↓
+Check project/resource permissions
+   ↓
+Generate controlled MinIO access
+   ↓
+Employee accesses file
+```
+
+The database should therefore store:
+
+```text
+bucket
+storage_key
+```
+
+rather than relying on a public URL.
+
+---
+
+# 10. Indexes
+
+Add appropriate indexes based on expected queries.
+
+At minimum consider:
+
+### `files`
+
+```text
+project_id
+uploaded_by_id
+storage_key
+checksum
+created_at
+```
+
+### `project_resources`
+
+```text
+project_id
+file_id
+resource_type
+uploaded_by_id
+created_at
+```
+
+Also consider a composite index useful for:
+
+```text
+project_id + resource_type
+```
+
+Do not add excessive indexes without a query/use-case justification.
+
+---
+
+# 11. Constraints
+
+Add appropriate constraints.
+
+Important:
+
+```text
+files.storage_key
+```
+
+should be unique.
+
+For versioning, preserve the relationship between:
+
+```text
+project
+resource type
+version
+```
+
+Use a sensible unique constraint where it fits the actual Prisma/PostgreSQL implementation.
+
+Do not create contradictory uniqueness rules that prevent legitimate historical versions.
+
+---
+
+# 12. Relationships
+
+Make sure the Prisma relations are correctly defined.
+
+Expected conceptual relationships:
+
+```text
+Project
+  │
+  ├── Files
+  │     └── Uploaded By User
+  │
+  └── Project Resources
+        ├── File
+        └── Uploaded By User
+```
+
+Also ensure the reverse relations are added to existing models where required by Prisma.
+
+Do not break existing relationships from previous steps.
+
+---
+
+# 13. Do NOT implement these yet
+
+This is a database-only step.
+
+Do NOT implement:
+
+- MinIO client
+- MinIO upload API
+- file download API
+- signed URL generation
+- file preview
+- image processing
+- virus scanning
+- file compression
+- drag-and-drop upload UI
+- permissions UI
+- document approval workflow
+- notifications
+- budget
+- payments
+- tasks
+- UI workflow
+- UX workflow
+- development workflow
+- QA workflow
+
+Those will be handled in later steps.
+
+---
+
+# 14. Migration requirements
+
+Create a **new Prisma migration** for this step.
+
+Do NOT:
+
+- reset the database
+- delete existing migrations
+- recreate the database
+- modify previous migrations
+- use destructive schema replacement
+- remove existing tables
+
+The migration must be incremental and safe.
+
+---
+
+# 15. Validation
+
+After implementing the schema:
+
+Run the appropriate project checks, such as:
+
+```bash
+npx prisma validate
+```
+
+and the project's existing migration/generation commands.
+
+If the project has existing tests or schema checks, run the relevant ones.
+
+Verify:
+
+- Prisma schema is valid
+- migration succeeds
+- Prisma Client generates successfully
+- existing models still compile
+- existing relations are not broken
+- foreign keys are correct
+- indexes are created
+- unique constraints work
+
+Do not modify unrelated application code to make this step pass.
+
+---
+
+# 16. Documentation
+
+Update the existing database documentation.
+
+At minimum update:
+
+```text
+/docs/database/README.md
+/docs/database/ERD.md
+/docs/database/DECISIONS.md
+```
+
+Document:
+
+### Files
+
+- physical files are stored in MinIO
+- PostgreSQL stores metadata only
+- storage_key identifies the object
+- bucket identifies the MinIO bucket
+- checksum supports integrity/duplicate detection
+- versions preserve historical files
+
+### Project Resources
+
+Explain:
+
+```text
+files = physical storage metadata
+project_resources = business classification/reference
+```
+
+Also document the MinIO key convention:
+
+```text
+projects/{project-id}/{resource-type}/{uuid}-{safe-filename}
+```
+
+---
+
+# 17. Final verification report
+
+When finished, report:
+
+### Models created
+
+```text
+files
+project_resources
+```
+
+### Enums created
+
+```text
+resource type enum
+```
+
+### Relationships created
+
+List all relationships.
+
+### Indexes
+
+List important indexes.
+
+### Constraints
+
+List unique constraints and important foreign keys.
+
+### Migration
+
+Provide:
+
+```text
+migration name
+migration status
+```
+
+### Validation
+
+Report:
+
+```text
+Prisma validation
+migration validation
+client generation
+tests/checks
+```
+
+### Documentation
+
+List updated documentation files.
+
+### Design decisions
+
+Briefly explain any deviations from this specification.
+
+---
+
+# Critical rules
+
+1. Do not recreate previous database models.
+2. Do not delete previous migrations.
+3. Do not reset the database.
+4. Do not introduce AWS services.
+5. Use MinIO as the future object-storage system.
+6. PostgreSQL stores metadata, not file binaries.
+7. Keep `files` and `project_resources` responsibilities separate.
+8. Preserve file version history.
+9. Do not implement the actual MinIO service yet.
+10. Do not implement budget/payment/task/UI/UX/Dev/QA in this step.
+11. Follow the existing Prisma naming and relation conventions.
+12. Inspect the current schema before making changes.
+13. Keep this migration incremental and production-safe.
+
+## STOP CONDITION
+
+After completing **Step 8 — Project Files & Resources**, stop.
+
+Do not automatically continue to Step 9.
+
+Wait for the next instruction.

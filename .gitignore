@@ -5,6 +5,7 @@ dist
 tmp
 out-tsc
 *.tsbuildinfo
+/packages/database/generated/
 .expo
 .expo-shared
 

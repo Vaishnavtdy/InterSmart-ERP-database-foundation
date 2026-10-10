@@ -27,12 +27,13 @@ enum UserStatus {
 }
 
 model Department {
-  id           String         @id @default(uuid()) @db.Uuid
-  code         DepartmentCode @unique
-  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  users        User[]
-  projectTeams ProjectTeam[]
+  id                String             @id @default(uuid()) @db.Uuid
+  code              DepartmentCode     @unique
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  users             User[]
+  projectTeams      ProjectTeam[]
+  budgetAllocations BudgetAllocation[]
 
   @@map("departments")
 }
@@ -72,12 +73,17 @@ model User {
   assignedProjectActions ProjectAction[]        @relation("ProjectActionAssignee")
   createdProjectActions  ProjectAction[]        @relation("ProjectActionCreator")
 
-  createdProjectScopes     ProjectScope[]     @relation("ScopeCreator")
-  approvedProjectScopes    ProjectScope[]     @relation("ScopeApprover")
-  createdBusinessAnalyses  BusinessAnalysis[] @relation("AnalysisCreator")
-  updatedBusinessAnalyses  BusinessAnalysis[] @relation("AnalysisUpdater")
-  uploadedFiles            File[]
-  uploadedProjectResources ProjectResource[]
+  createdProjectScopes      ProjectScope[]      @relation("ScopeCreator")
+  approvedProjectScopes     ProjectScope[]      @relation("ScopeApprover")
+  createdBusinessAnalyses   BusinessAnalysis[]  @relation("AnalysisCreator")
+  updatedBusinessAnalyses   BusinessAnalysis[]  @relation("AnalysisUpdater")
+  uploadedFiles             File[]
+  uploadedProjectResources  ProjectResource[]
+  createdProjectBudgets     ProjectBudget[]     @relation("BudgetCreator")
+  updatedProjectBudgets     ProjectBudget[]     @relation("BudgetUpdater")
+  targetedBudgetAllocations BudgetAllocation[]  @relation("AllocationTargetUser")
+  createdBudgetAllocations  BudgetAllocation[]  @relation("AllocationCreator")
+  createdBudgetTransactions BudgetTransaction[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -470,6 +476,7 @@ model Project {
   businessAnalysis     BusinessAnalysis?
   files                File[]
   resources            ProjectResource[]
+  budget               ProjectBudget?
 
   @@index([customerId])
   @@index([proposalId])
@@ -753,4 +760,112 @@ model ProjectResource {
   @@index([uploadedById])
   @@index([createdAt])
   @@map("project_resources")
+}
+
+enum ProjectBudgetStatus {
+  DRAFT
+  ACTIVE
+  ON_HOLD
+  CLOSED
+  CANCELLED
+}
+
+enum BudgetAllocationType {
+  PROJECT_MANAGEMENT
+  BUSINESS_ANALYSIS
+  UI
+  UX
+  DEVELOPMENT
+  QA
+  INFRASTRUCTURE
+  OTHER
+}
+
+enum BudgetTransactionType {
+  INITIAL_ALLOCATION
+  ALLOCATION
+  ADJUSTMENT
+  INCREASE
+  DECREASE
+  EXPENSE
+  REFUND
+  REVERSAL
+}
+
+model ProjectBudget {
+  id             String              @id @default(uuid()) @db.Uuid
+  projectId      String              @unique @map("project_id") @db.Uuid
+  totalBudget    Decimal             @map("total_budget") @db.Decimal(18, 2)
+  currency       String              @default("INR") @db.VarChar(3)
+  status         ProjectBudgetStatus @default(DRAFT)
+  effectiveFrom  DateTime            @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveUntil DateTime?           @map("effective_until") @db.Timestamptz(6)
+  notes          String?             @db.Text
+  createdById    String              @map("created_by_id") @db.Uuid
+  updatedById    String?             @map("updated_by_id") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy      User                @relation("BudgetCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy      User?               @relation("BudgetUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  allocations    BudgetAllocation[]
+  transactions   BudgetTransaction[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("project_budgets")
+}
+
+model BudgetAllocation {
+  id              String               @id @default(uuid()) @db.Uuid
+  projectBudgetId String               @map("project_budget_id") @db.Uuid
+  departmentId    String?              @map("department_id") @db.Uuid
+  userId          String?              @map("user_id") @db.Uuid
+  allocationType  BudgetAllocationType @map("allocation_type")
+  allocatedAmount Decimal              @map("allocated_amount") @db.Decimal(18, 2)
+  description     String?              @db.Text
+  createdById     String               @map("created_by_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectBudget   ProjectBudget        @relation(fields: [projectBudgetId], references: [id], onDelete: Restrict)
+  department      Department?          @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  user            User?                @relation("AllocationTargetUser", fields: [userId], references: [id], onDelete: Restrict)
+  createdBy       User                 @relation("AllocationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  transactions    BudgetTransaction[]
+
+  // Target key prevents transactions from referencing another budget's allocation.
+  @@unique([projectBudgetId, id])
+  @@index([projectBudgetId, allocationType])
+  @@index([departmentId])
+  @@index([userId])
+  @@index([allocationType])
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("budget_allocations")
+}
+
+model BudgetTransaction {
+  id              String                @id @default(uuid()) @db.Uuid
+  projectBudgetId String                @map("project_budget_id") @db.Uuid
+  allocationId    String?               @map("allocation_id") @db.Uuid
+  transactionType BudgetTransactionType @map("transaction_type")
+  amount          Decimal               @db.Decimal(18, 2)
+  reference       String?               @db.VarChar(255)
+  description     String?               @db.Text
+  transactionDate DateTime              @default(now()) @map("transaction_date") @db.Timestamptz(6)
+  createdById     String                @map("created_by_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  projectBudget   ProjectBudget         @relation(fields: [projectBudgetId], references: [id], onDelete: Restrict)
+  allocation      BudgetAllocation?     @relation(fields: [projectBudgetId, allocationId], references: [projectBudgetId, id], onDelete: Restrict, onUpdate: NoAction)
+  createdBy       User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([projectBudgetId, transactionDate])
+  @@index([allocationId])
+  @@index([transactionType])
+  @@index([transactionDate])
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("budget_transactions")
 }

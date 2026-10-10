@@ -458,3 +458,94 @@ Prisma returns JavaScript bigint; future JSON APIs must serialize it explicitly
 TIMESTAMPTZ(6) and Prisma-maintained updatedAt. This step adds SQL checks for
 nonnegative file size, positive version numbers, and non-current soft-deleted
 files. No seed changes are required.
+
+## Project Budget & Budget Transactions (Database Step 9)
+
+Migration: `20261010115257_project_budget_transactions`, additive and
+transactionally applied.
+
+Budget is a separate financial domain:
+
+`Project → ProjectBudget → BudgetAllocation[] / BudgetTransaction[]`
+
+No budget amounts, used/remaining/available values, percentages, or budget
+status are added to the Project table. Customer payments are a different
+domain and are not implemented here.
+
+| Table | Fields |
+| --- | --- |
+| `project_budgets` | UUID `id`; unique required `project_id`; NUMERIC(18,2) `total_budget`; string `currency`; `status`; `effective_from`, nullable `effective_until`, `notes`; required `created_by_id`, nullable `updated_by_id`; `created_at`, `updated_at` |
+| `budget_allocations` | UUID `id`; required `project_budget_id`; nullable `department_id`, `user_id`; `allocation_type`; NUMERIC(18,2) `allocated_amount`; nullable `description`; required `created_by_id`; `created_at`, `updated_at` |
+| `budget_transactions` | UUID `id`; required `project_budget_id`; nullable `allocation_id`; `transaction_type`; signed NUMERIC(18,2) `amount`; nullable string `reference`, `description`; `transaction_date`; required `created_by_id`; `created_at` |
+
+- One budget definition exists per project across all lifecycle states.
+  Adjustments/history are transaction records, not duplicate active headers.
+- Status: `DRAFT` (default), `ACTIVE`, `ON_HOLD`, `CLOSED`, `CANCELLED`.
+- Allocation type: `PROJECT_MANAGEMENT`, `BUSINESS_ANALYSIS`, `UI`, `UX`,
+  `DEVELOPMENT`, `QA`, `INFRASTRUCTURE`, `OTHER`.
+- Transaction type: `INITIAL_ALLOCATION`, `ALLOCATION`, `ADJUSTMENT`, `INCREASE`,
+  `DECREASE`, `EXPENSE`, `REFUND`, `REVERSAL`.
+- Currency defaults to `INR`, with uppercase three-letter syntax validated
+  by SQL. It remains a string, not a currency enum/table. Services must validate
+  supported currencies. All allocation/transaction amounts use their budget's
+  currency; foreign-exchange handling is not added.
+- Header/allocated amounts are finite and nonnegative. Transaction amounts
+  are finite and nonzero: initial funding/increase/refund must be positive,
+  decrease/expense negative. Adjustment, allocation movement, and reversal
+  may be either sign. Effective end cannot precede effective start.
+- Department-only, employee-only, category-only (both target fields null), and
+  employee-with-department-context allocations are allowed. No speculative
+  uniqueness prevents multiple legitimate allocation lines of the same type.
+- Optional allocation references use a same-budget composite foreign key.
+  Budget-wide transactions with no allocation are supported. Every creator,
+  updater, employee target, and department references the existing models.
+- All new FKs use Restrict, preserving financial attribution and preventing
+  cascading history loss. Project soft deletion retains budget records.
+  No budget soft-delete fields or history deletion workflow is added.
+
+### Accounting and future writer contracts
+
+`total_budget` is the configured opening budget definition, not a cached
+current balance. Future initialization must lock the budget, write exactly one
+`INITIAL_ALLOCATION` matching that opening value, and activate atomically.
+Do **not** add total_budget again when summing an initialized ledger: that
+would double count the opening funding. Until initialization exists, treat
+the ledger as uninitialized, not an authoritative zero balance.
+
+Zero-valued draft definitions are supported, but initialization events must
+be positive. Standard funded activation therefore requires a positive opening
+definition. A zero-funded activation policy requires explicit future review;
+it is not implemented by this foundation.
+
+Positive movement adds funds; negative movement reduces them. For the simple
+case without reversals:
+
+- Current budget = sum of INITIAL_ALLOCATION, INCREASE, DECREASE, ADJUSTMENT.
+- Available funds = current budget + signed EXPENSE and REFUND amounts.
+- ALLOCATION records internal distribution changes, not new project funds;
+  do not add it to the project-funding total. allocated_amount defines planned
+  allocation, not consumption. Allocation-level accounting and overlapping
+  department/employee plans require an explicit future service policy.
+
+Corrections must append REVERSAL/replacement records, not overwrite ledger
+history. REVERSAL needs the original event's accounting effect; sign alone
+cannot distinguish reversing an expense from reversing funding. The optional
+reference can carry an agreed transaction reference, but it is not a FK.
+Future services must validate reversal provenance/budget and define reporting
+classification before authoritative balance dashboards are introduced.
+
+No initialization uniqueness/matching rule, append-only DB trigger, automatic
+ledger writer, allocation ceiling, state machine, approval engine, payment
+module, or balance/dashboard service is implemented. These contracts are
+documented service requirements, not claimed database guarantees.
+
+### Indexes and checks
+
+Budget project uniqueness covers project lookup; status, creation time, and
+creator/updater are indexed. Allocations index budget/type, department, employee,
+type, creator, and creation time, with an owner/ID composite target key.
+Transactions index budget/date, allocation, type, transaction date, creator,
+and creation time. Leading budget prefixes cover budget-only queries.
+SQL checks cover finite/nonnegative definitions, finite/nonzero signed events,
+event polarity, currency syntax, and effective-date order. No new triggers or
+seed records are needed.

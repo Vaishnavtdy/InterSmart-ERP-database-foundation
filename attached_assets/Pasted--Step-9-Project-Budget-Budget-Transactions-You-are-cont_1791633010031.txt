@@ -1,0 +1,1019 @@
+# Step 9 — Project Budget & Budget Transactions
+
+You are continuing the database implementation of our internal ERP.
+
+## Current implementation status
+
+The following database steps are already completed:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Proposal Versions / Proposal Items
+6. Projects
+7. Project Scope / Business Analysis
+8. Project Files / Resources
+
+The next database step is:
+
+> **Step 9 — Project Budget & Budget Transactions**
+
+Do not recreate, replace, rename, or remove any existing models.
+
+---
+
+# 1. First inspect the existing implementation
+
+Before making any changes:
+
+- Inspect the current Prisma schema.
+- Inspect all existing migrations.
+- Inspect project-related models.
+- Inspect existing enums.
+- Inspect database documentation.
+- Inspect existing naming conventions.
+- Inspect existing UUID and timestamp conventions.
+- Check whether any budget-related model already exists.
+
+Use the current implementation as the source of truth.
+
+Do not blindly copy this specification if an equivalent structure already exists.
+
+---
+
+# 2. Business purpose
+
+The ERP needs to track the financial budget allocated to each project.
+
+Budget information will be used by:
+
+- Accounts
+- PMO
+- Project Managers
+- Project Coordinators
+- Team Leads
+- Management
+
+The system must eventually support:
+
+- Project budget creation
+- Budget allocation
+- Department/resource allocation
+- Budget increases
+- Budget reductions
+- Budget consumption
+- Budget adjustments
+- Budget history
+- Out-of-budget detection
+- Approval workflows later
+- Budget dashboards later
+
+However, this step is **database foundation only**.
+
+Do not implement the approval workflow yet.
+
+---
+
+# 3. Important architecture rule
+
+Do NOT put budget fields directly into the `projects` table.
+
+Do NOT add fields such as:
+
+```text
+budget
+used_budget
+remaining_budget
+budget_status
+```
+
+to `projects`.
+
+Budget is a separate financial domain.
+
+The relationship should be:
+
+```text
+Project
+   │
+   └── Project Budget
+          │
+          ├── Budget Allocations
+          │
+          └── Budget Transactions
+```
+
+This allows budget history and multiple adjustments without corrupting the project record.
+
+---
+
+# 4. Create `project_budgets`
+
+Create a `project_budgets` model.
+
+Recommended fields:
+
+```text id="wq9mzp"
+id
+project_id
+total_budget
+currency
+status
+effective_from
+effective_until
+notes
+created_by_id
+updated_by_id
+created_at
+updated_at
+```
+
+## Field requirements
+
+### `id`
+
+- UUID
+- Primary key
+
+### `project_id`
+
+- Foreign key to `projects`
+- Required
+
+A project should have a clear budget record.
+
+Use a unique constraint if the business model supports only one active/current budget definition per project.
+
+If historical budget versions are required by the existing architecture, document the approach rather than creating duplicate active budgets.
+
+### `total_budget`
+
+Use:
+
+```text
+Decimal / PostgreSQL NUMERIC
+```
+
+Never use floating-point types for money.
+
+### `currency`
+
+String field.
+
+For example:
+
+```text
+INR
+```
+
+Do not unnecessarily create a currency table at this stage.
+
+The system can later support additional currencies if required.
+
+### `status`
+
+Create a budget status enum.
+
+Recommended values:
+
+```text
+DRAFT
+ACTIVE
+ON_HOLD
+CLOSED
+CANCELLED
+```
+
+### `effective_from`
+
+Date/time when the budget becomes applicable.
+
+### `effective_until`
+
+Nullable date/time.
+
+### `notes`
+
+Optional explanation or financial notes.
+
+### `created_by_id`
+
+Foreign key to `users`.
+
+### `updated_by_id`
+
+Nullable foreign key to `users`.
+
+### timestamps
+
+Use the project's existing:
+
+```text
+created_at
+updated_at
+```
+
+conventions.
+
+---
+
+# 5. Create `budget_allocations`
+
+A project budget needs to be divided into allocations.
+
+Examples:
+
+```text
+UI
+UX
+Development
+QA
+Project Management
+Other
+```
+
+Create:
+
+```text
+budget_allocations
+```
+
+Recommended fields:
+
+```text id="4yt6l0"
+id
+project_budget_id
+department_id
+user_id
+allocation_type
+allocated_amount
+description
+created_by_id
+created_at
+updated_at
+```
+
+---
+
+# 6. Allocation design
+
+An allocation may belong to:
+
+- a department
+- an individual employee
+- a functional category
+
+Do not force every allocation to require a user.
+
+Examples:
+
+### Department allocation
+
+```text
+Development → ₹100,000
+```
+
+### Employee allocation
+
+```text
+Developer A → ₹40,000
+```
+
+### Functional allocation
+
+```text
+QA → ₹25,000
+```
+
+Therefore:
+
+```text
+department_id = nullable
+user_id = nullable
+allocation_type = required
+```
+
+Do not allow both `department_id` and `user_id` to become mandatory.
+
+---
+
+# 7. Allocation type enum
+
+Create:
+
+```text
+PROJECT_MANAGEMENT
+BUSINESS_ANALYSIS
+UI
+UX
+DEVELOPMENT
+QA
+INFRASTRUCTURE
+OTHER
+```
+
+Keep this intentionally broad.
+
+Do not create resource-specific allocation types such as:
+
+```text
+REACT_DEVELOPER
+NODE_DEVELOPER
+FIGMA_DESIGNER
+```
+
+Those belong to resource/task management, not the budget domain.
+
+---
+
+# 8. Allocation amount
+
+`allocated_amount` must use:
+
+```text
+Decimal / NUMERIC
+```
+
+Never use:
+
+```text
+float
+double
+```
+
+for financial amounts.
+
+---
+
+# 9. Create `budget_transactions`
+
+This table records changes to the financial state of the project budget.
+
+Create:
+
+```text
+budget_transactions
+```
+
+Recommended fields:
+
+```text id="6hd9f4"
+id
+project_budget_id
+allocation_id
+transaction_type
+amount
+reference
+description
+transaction_date
+created_by_id
+created_at
+```
+
+---
+
+# 10. Transaction types
+
+Create an enum:
+
+```text
+INITIAL_ALLOCATION
+ALLOCATION
+ADJUSTMENT
+INCREASE
+DECREASE
+EXPENSE
+REFUND
+REVERSAL
+```
+
+These represent financial changes.
+
+Do not create separate columns such as:
+
+```text
+increase_amount
+decrease_amount
+expense_amount
+```
+
+The transaction model should remain normalized.
+
+---
+
+# 11. Positive/negative amount convention
+
+Choose one consistent convention and document it.
+
+Recommended:
+
+```text
+amount > 0
+```
+
+means a positive budget movement.
+
+```text
+amount < 0
+```
+
+means a reduction.
+
+Examples:
+
+### Budget increase
+
+```text
++50,000
+```
+
+### Budget reduction
+
+```text
+-10,000
+```
+
+### Expense
+
+```text
+-5,000
+```
+
+### Refund
+
+```text
++2,000
+```
+
+Do not store both positive and negative values for the same financial event in separate fields.
+
+---
+
+# 12. Important accounting principle
+
+Do not store calculated values such as:
+
+```text
+used_budget
+remaining_budget
+available_budget
+```
+
+as source-of-truth columns.
+
+These values should eventually be calculated from transactions.
+
+Conceptually:
+
+```text
+Current Budget
+=
+Initial Budget
++
+Budget Increases
+-
+Budget Decreases
++
+Adjustments
+```
+
+and:
+
+```text
+Available Budget
+=
+Current Budget
+-
+Expenses
+```
+
+The exact calculation can be implemented later in services/reporting.
+
+For this database step, preserve the underlying transactions.
+
+---
+
+# 13. Transaction reference
+
+`reference` should be optional.
+
+It may later contain:
+
+```text
+payment request ID
+expense reference
+approval ID
+invoice reference
+manual adjustment reference
+```
+
+Do not create foreign keys to future tables that do not exist yet.
+
+Do not use a polymorphic foreign-key implementation at this stage.
+
+Simply store a reference string if needed.
+
+Document that future domain tables may introduce stronger relationships.
+
+---
+
+# 14. Allocation relationship
+
+`allocation_id` should be nullable.
+
+Why?
+
+Some transactions may apply to the overall project budget rather than a specific allocation.
+
+Examples:
+
+```text
+Project-wide budget increase
+Project-wide adjustment
+Project-wide refund
+```
+
+Therefore:
+
+```text
+budget_transactions.allocation_id
+```
+
+should be nullable.
+
+---
+
+# 15. Department relationship
+
+`budget_allocations.department_id` should reference:
+
+```text
+departments.id
+```
+
+Use the existing Department model.
+
+Do not create a new department table.
+
+---
+
+# 16. User relationships
+
+Use the existing `users` table for:
+
+```text
+budget.created_by_id
+budget.updated_by_id
+
+allocation.created_by_id
+
+transaction.created_by_id
+```
+
+Do not create duplicate employee tables.
+
+---
+
+# 17. Budget lifecycle
+
+The database should support the following lifecycle:
+
+```text
+DRAFT
+   ↓
+ACTIVE
+   ↓
+ON_HOLD
+   ↓
+ACTIVE
+   ↓
+CLOSED
+```
+
+Cancellation may occur when appropriate:
+
+```text
+DRAFT → CANCELLED
+ACTIVE → CANCELLED
+```
+
+Do not implement lifecycle business logic in this step.
+
+Only create the database structures.
+
+---
+
+# 18. Example data model
+
+The resulting structure should conceptually look like:
+
+```text
+PROJECT
+   │
+   └── PROJECT_BUDGET
+          │
+          ├── BUDGET_ALLOCATION
+          │      ├── Department
+          │      └── User
+          │
+          └── BUDGET_TRANSACTION
+                 └── optional Allocation
+```
+
+Example:
+
+```text
+Project: ABC Website
+
+Budget:
+₹500,000
+
+Allocations:
+
+UI:
+₹80,000
+
+UX:
+₹60,000
+
+Development:
+₹250,000
+
+QA:
+₹70,000
+
+PM:
+₹40,000
+```
+
+Transactions might then be:
+
+```text
+INITIAL_ALLOCATION +500,000
+
+EXPENSE -20,000
+EXPENSE -15,000
+
+INCREASE +50,000
+
+EXPENSE -30,000
+```
+
+The application can later calculate the current financial state from these records.
+
+---
+
+# 19. Indexes
+
+Add useful indexes.
+
+### `project_budgets`
+
+At minimum:
+
+```text
+project_id
+status
+created_at
+```
+
+### `budget_allocations`
+
+At minimum:
+
+```text
+project_budget_id
+department_id
+user_id
+allocation_type
+created_at
+```
+
+Consider:
+
+```text
+project_budget_id + allocation_type
+```
+
+if useful for expected queries.
+
+### `budget_transactions`
+
+At minimum:
+
+```text
+project_budget_id
+allocation_id
+transaction_type
+transaction_date
+created_by_id
+created_at
+```
+
+Do not add indexes without a query/use-case reason.
+
+---
+
+# 20. Constraints
+
+Add appropriate foreign keys.
+
+Expected:
+
+```text
+project_budgets.project_id
+    → projects.id
+
+project_budgets.created_by_id
+    → users.id
+
+project_budgets.updated_by_id
+    → users.id
+
+budget_allocations.project_budget_id
+    → project_budgets.id
+
+budget_allocations.department_id
+    → departments.id
+
+budget_allocations.user_id
+    → users.id
+
+budget_allocations.created_by_id
+    → users.id
+
+budget_transactions.project_budget_id
+    → project_budgets.id
+
+budget_transactions.allocation_id
+    → budget_allocations.id
+
+budget_transactions.created_by_id
+    → users.id
+```
+
+Follow the existing Prisma relation naming conventions.
+
+---
+
+# 21. Data integrity
+
+Where supported cleanly by Prisma/PostgreSQL, ensure:
+
+- monetary fields cannot contain invalid null values where not intended
+- amounts use Decimal
+- project budget references valid projects
+- allocations reference valid budgets
+- transactions reference valid budgets
+- nullable relationships remain nullable
+- timestamps follow existing conventions
+
+Do not introduce complicated database triggers at this stage.
+
+The financial business rules will eventually live in the NestJS service layer.
+
+---
+
+# 22. No approval engine yet
+
+The company workflow will eventually require:
+
+```text
+Budget Increase Request
+Budget Approval
+Budget Rejection
+```
+
+Do NOT create the generic approval engine in this step.
+
+Do NOT create:
+
+```text
+approval_requests
+approval_steps
+approval_actions
+```
+
+yet.
+
+That will be implemented later as a reusable approval system.
+
+For now, the database only needs to represent the financial records.
+
+---
+
+# 23. No payment implementation yet
+
+Do NOT confuse project budget with customer payments.
+
+These are separate concepts.
+
+### Project budget
+
+How much internal/project budget is available for executing the project.
+
+### Customer payment
+
+Money received/requested from the customer.
+
+Customer payments will be implemented in the next financial domain step.
+
+Do not create payment tables here.
+
+---
+
+# 24. No dashboard fields
+
+Do not add:
+
+```text
+budget_used
+budget_remaining
+budget_percentage
+expense_percentage
+```
+
+to any table.
+
+These should eventually be calculated through:
+
+- SQL aggregation
+- Prisma queries
+- reporting services
+- dashboard queries
+
+depending on the final architecture.
+
+---
+
+# 25. Migration
+
+Create a new incremental Prisma migration.
+
+Do NOT:
+
+- reset the database
+- delete migrations
+- modify previous migrations
+- drop existing project tables
+- recreate the Prisma schema from scratch
+- overwrite existing data
+
+The migration must only add the structures required for Step 9.
+
+---
+
+# 26. Validation
+
+After implementation run the project's normal checks.
+
+At minimum:
+
+```bash
+npx prisma validate
+```
+
+Then generate Prisma Client using the project's existing command.
+
+Run the migration using the project's normal development migration workflow.
+
+Run relevant tests/type checks if they already exist.
+
+Verify:
+
+- schema is valid
+- migration succeeds
+- Prisma Client generates
+- existing models still compile
+- relationships are valid
+- Decimal fields are correctly represented
+- indexes are created
+- foreign keys are correct
+- no existing migration was modified
+
+---
+
+# 27. Documentation
+
+Update:
+
+```text
+/docs/database/README.md
+/docs/database/ERD.md
+/docs/database/DECISIONS.md
+```
+
+Document:
+
+### Budget architecture
+
+```text
+Project
+  ↓
+Project Budget
+  ↓
+Allocations
+  ↓
+Transactions
+```
+
+Document the rule:
+
+> Budget values are not stored directly on the Project model.
+
+Document the accounting principle:
+
+> Financial state is derived from budget transactions rather than duplicated calculated columns.
+
+Document:
+
+> Project budget and customer payments are separate domains.
+
+---
+
+# 28. Final verification report
+
+When finished, report:
+
+## Models created
+
+```text
+project_budgets
+budget_allocations
+budget_transactions
+```
+
+## Enums created
+
+```text
+budget status
+allocation type
+transaction type
+```
+
+## Relationships
+
+List all relationships.
+
+## Indexes
+
+List important indexes.
+
+## Constraints
+
+List important unique constraints and foreign keys.
+
+## Migration
+
+Report:
+
+```text
+migration name
+migration status
+```
+
+## Validation
+
+Report:
+
+```text
+Prisma validation
+migration result
+Prisma Client generation
+tests/type checks
+```
+
+## Documentation
+
+List modified documentation files.
+
+## Design decisions
+
+Explain any deviation from this specification.
+
+---
+
+# Critical rules
+
+1. Do not recreate previous models.
+2. Do not modify previous migrations.
+3. Do not reset the database.
+4. Do not store budget fields directly on `projects`.
+5. Use Decimal/NUMERIC for all monetary values.
+6. Preserve transaction history.
+7. Do not store calculated budget values as source of truth.
+8. Do not implement customer payments yet.
+9. Do not implement the generic approval engine yet.
+10. Do not introduce AWS.
+11. Follow the existing Prisma architecture.
+12. Inspect the current implementation before modifying it.
+13. Keep this migration incremental and production-safe.
+
+# STOP CONDITION
+
+After completing **Step 9 — Project Budget & Budget Transactions**, stop.
+
+Do not automatically continue to Step 10.
+
+Wait for the next instruction.

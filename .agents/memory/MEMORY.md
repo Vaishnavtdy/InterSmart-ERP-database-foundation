@@ -1,3 +1,4 @@
 - [Prisma ESM imports](prisma-esm-imports.md) — generated enum re-exports need explicit module extensions under NodeNext.
 - [Project write contracts](project-write-contracts.md) — preserve staffing context; coordinate status/history and scope approval writes atomically.
 - [File revision contracts](file-revision-contracts.md) — current flags need serialized application writes; historical references must resolve exact physical revisions.
+- [Budget ledger contracts](budget-ledger-contracts.md) — opening funding must not be counted twice; allocation movements and reversals need explicit accounting classification.

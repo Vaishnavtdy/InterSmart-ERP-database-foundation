@@ -547,3 +547,78 @@
   file/uploader/type/checksum/time indexes support references, attribution,
   category views, integrity lookup, and chronological queries. No duplicate
   index is added solely for a field already covered by a unique index.
+
+## Budget domain and header identity
+
+- **Migration:** `20261010115257_project_budget_transactions`. Previous
+  migrations, SQL guards, and stored records are preserved.
+- **Decision:** ProjectBudget, BudgetAllocation, BudgetTransaction are separate
+  from Project and customer payments. Add only necessary inverse relations to
+  Project, Department, and User.
+- **Reason:** Internal execution funding is not customer cash collection;
+  derived used/remaining/available amounts and percentages are not source
+  fields. No payment, approval, or dashboard module is added.
+- **Identity:** Unique project ID permits one budget definition across its
+  lifecycle. Historical changes live in the transaction ledger rather than
+  multiple active headers. Budget-definition versions need explicit review
+  if later business requirements require them.
+
+## Monetary conventions and initialization
+
+- **Decision:** Use existing NUMERIC(18,2) money precision throughout; budget
+  and allocation definitions are finite/nonnegative, events finite/nonzero.
+  Currency is a three-letter uppercase string defaulting to INR. Services
+  must validate real currency codes and review precision for currencies
+  requiring more than two fractional digits.
+- **Signs:** INITIAL_ALLOCATION, INCREASE, REFUND positive; DECREASE, EXPENSE
+  negative. ADJUSTMENT, ALLOCATION, REVERSAL support signed directions.
+  These are simple row checks, not lifecycle/approval logic.
+- **Opening:** totalBudget is configured initial funding. Future initialization
+  atomically records exactly one equal INITIAL_ALLOCATION and activates the
+  header under a lock. Initialization uniqueness/equality is not DB-enforced.
+- **Reason:** Adding the header opening amount to its mirrored initial ledger
+  entry would double count funding. Post-initialization balances come from
+  ledger aggregation, not overwritten header values or cached balance fields.
+- **Zero definitions:** Zero is valid for draft planning. INITIAL_ALLOCATION
+  events are positive, so standard funded initialization requires a positive
+  opening definition. Review zero-funded activation separately before exposing
+  that workflow; the database does not implement activation rules.
+- **Allocation:** planned allocatedAmount is not expenditure or available
+  funds. ALLOCATION events describe internal distribution and are excluded
+  from project-wide funding totals. Future services must define allocation
+  adjustment reconciliation, over-allocation checks, and overlap policy.
+
+## Optional allocation ownership and employee context
+
+- **Decision:** Both departmentId and userId are independently nullable.
+  Category-only, department-only, employee-only, and combined employee/
+  department-context records are valid.
+- **Reason:** Allocation is not synonymous with an individual resource.
+  Multiple allocation lines per category/target may be legitimate, so no
+  arbitrary target/type uniqueness is added.
+- **Ownership:** Transaction (projectBudgetId, allocationId) references
+  allocation (projectBudgetId, id), using a composite target unique key.
+  Null allocation remains budget-wide; a populated allocation must belong
+  to that exact budget. Owned-reference updates use NoAction.
+- **Retention:** Restrict FKs retain actor/target/department attribution and
+  avoid cascading budget/ledger loss. Employee transfers must not silently
+  rewrite historical allocation department context. Project soft deletion
+  retains financial records.
+
+## Transaction history and unresolved reporting policy
+
+- **Decision:** Ledger rows have creation/transaction timestamps and actor,
+  with no updatedAt/deletedAt or balance fields. Future writers must append
+  corrections/reversals rather than edit/delete past entries.
+- **Reason:** Traceable financial state requires the underlying event history.
+  No new triggers or DB permission changes are introduced; append-only behavior
+  is an application contract and direct SQL mutations are not blocked.
+- **Reference:** Optional string only. It may describe future invoices,
+  expenses, requests, or approvals without unsupported polymorphic FKs.
+- **Reversal:** Future services must resolve and validate the original
+  budget/event and its funding-versus-consumption effect. Sign alone is not
+  sufficient for reporting classification. No reversal-target FK or idempotency
+  mechanism is invented in this foundation step.
+- **Dates/indexes:** TIMESTAMPTZ(6) everywhere; effectiveFrom/transactionDate
+  default now, effectiveUntil nullable and ordered. Indexes cover owner/date,
+  type, employee/department attribution, and chronology. No seed is needed.

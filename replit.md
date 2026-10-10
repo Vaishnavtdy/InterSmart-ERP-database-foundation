@@ -58,6 +58,10 @@ Scope defines WHAT is included. Business Analysis defines WHY and FOR WHOM the
 project exists. Budget defines HOW MUCH work is financially allocated; Tasks
 define HOW the work is executed. Keep these concepts separate.
 
+Project budgets represent internal execution funding, not customer payments.
+Keep budget definitions, allocations, and transactions separate from Project;
+derive financial balances from transactions rather than cached balance fields.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

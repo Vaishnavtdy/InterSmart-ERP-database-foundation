@@ -2,6 +2,57 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o| PROJECT_BUDGETS : "budget definition"
+  USERS ||--o{ PROJECT_BUDGETS : "creates"
+  USERS o|--o{ PROJECT_BUDGETS : "last updates"
+  PROJECT_BUDGETS ||--o{ BUDGET_ALLOCATIONS : "plans allocations"
+  DEPARTMENTS o|--o{ BUDGET_ALLOCATIONS : "optional department"
+  USERS o|--o{ BUDGET_ALLOCATIONS : "optional employee target"
+  USERS ||--o{ BUDGET_ALLOCATIONS : "creates"
+  PROJECT_BUDGETS ||--o{ BUDGET_TRANSACTIONS : "financial events"
+  BUDGET_ALLOCATIONS o|--o{ BUDGET_TRANSACTIONS : "optional same-budget attribution"
+  USERS ||--o{ BUDGET_TRANSACTIONS : "records"
+
+  PROJECT_BUDGETS {
+    uuid id PK
+    uuid project_id FK, UK
+    decimal total_budget
+    string currency
+    enum status
+    timestamptz effective_from
+    timestamptz effective_until
+    string notes
+    uuid created_by_id FK
+    uuid updated_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  BUDGET_ALLOCATIONS {
+    uuid id PK
+    uuid project_budget_id FK
+    uuid department_id FK
+    uuid user_id FK
+    enum allocation_type
+    decimal allocated_amount
+    string description
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  BUDGET_TRANSACTIONS {
+    uuid id PK
+    uuid project_budget_id FK
+    uuid allocation_id FK
+    enum transaction_type
+    decimal amount
+    string reference
+    string description
+    timestamptz transaction_date
+    uuid created_by_id FK
+    timestamptz created_at
+  }
   PROJECTS ||--o{ FILES : "owns physical metadata"
   USERS ||--o{ FILES : "uploads"
   PROJECTS ||--o{ PROJECT_RESOURCES : "classifies resources"
@@ -403,3 +454,10 @@ Stable series identifiers support multiple assets per type with independent
 version histories. File project/series/version and resource
 project/type/series/version are unique; at-most-one current per series remains
 a future application rule. Restrict FKs and file soft deletion preserve rows.
+
+Budgets are unique by project and never stored directly on Project. Allocation
+targets are optional; transaction allocations must belong to the same budget.
+All money is NUMERIC(18,2); signed events preserve funding/consumption history.
+Configured opening budget and its INITIAL_ALLOCATION are not added twice.
+Balances are derived later, with reversal/accounting policies validated by
+future services. Customer payments and generic approval remain separate.

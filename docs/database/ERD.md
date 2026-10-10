@@ -2,6 +2,78 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ PAYMENT_REQUESTS : "has requests"
+  CUSTOMERS ||--o{ PAYMENT_REQUESTS : "owes"
+  USERS ||--o{ PAYMENT_REQUESTS : "requests"
+  USERS o|--o{ PAYMENT_REQUESTS : "approves"
+  USERS o|--o{ PAYMENT_REQUESTS : "rejects"
+  PAYMENT_REQUESTS o|--o{ PAYMENTS : "receives installments"
+  PROJECTS ||--o{ PAYMENTS : "customer receipts"
+  CUSTOMERS ||--o{ PAYMENTS : "pays"
+  USERS ||--o{ PAYMENTS : "records"
+  PAYMENTS ||--o{ PAYMENT_STATUS_HISTORY : "status history"
+  USERS ||--o{ PAYMENT_STATUS_HISTORY : "changes"
+  PAYMENT_REQUESTS ||--o{ PAYMENT_REQUEST_STATUS_HISTORY : "status history"
+  USERS ||--o{ PAYMENT_REQUEST_STATUS_HISTORY : "changes"
+
+  PAYMENT_REQUESTS {
+    uuid id PK
+    string payment_request_code UK
+    uuid project_id FK
+    uuid customer_id FK
+    uuid requested_by_id FK
+    decimal amount
+    string currency
+    PaymentType payment_type
+    string description "nullable"
+    timestamptz due_date "nullable"
+    PaymentRequestStatus status
+    timestamptz requested_at
+    timestamptz approved_at "nullable"
+    uuid approved_by_id FK "nullable"
+    timestamptz rejected_at "nullable"
+    uuid rejected_by_id FK "nullable"
+    string rejection_reason "nullable"
+    timestamptz created_at
+    timestamptz updated_at
+    timestamptz deleted_at "nullable"
+  }
+  PAYMENTS {
+    uuid id PK
+    string payment_code UK
+    uuid payment_request_id FK "nullable"
+    uuid project_id FK
+    uuid customer_id FK
+    decimal amount
+    string currency
+    PaymentMethod payment_method
+    timestamptz payment_date
+    string transaction_reference "nullable nonunique"
+    string receipt_number UK "nullable"
+    PaymentStatus status
+    string notes "nullable"
+    uuid recorded_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  PAYMENT_STATUS_HISTORY {
+    uuid id PK
+    uuid payment_id FK
+    PaymentStatus from_status "nullable"
+    PaymentStatus to_status
+    uuid changed_by_id FK
+    string reason "nullable"
+    timestamptz created_at
+  }
+  PAYMENT_REQUEST_STATUS_HISTORY {
+    uuid id PK
+    uuid payment_request_id FK
+    PaymentRequestStatus from_status "nullable"
+    PaymentRequestStatus to_status
+    uuid changed_by_id FK
+    string reason "nullable"
+    timestamptz created_at
+  }
   PROJECTS ||--o| PROJECT_BUDGETS : "budget definition"
   USERS ||--o{ PROJECT_BUDGETS : "creates"
   USERS o|--o{ PROJECT_BUDGETS : "last updates"
@@ -461,3 +533,11 @@ All money is NUMERIC(18,2); signed events preserve funding/consumption history.
 Configured opening budget and its INITIAL_ALLOCATION are not added twice.
 Balances are derived later, with reversal/accounting policies validated by
 future services. Customer payments and generic approval remain separate.
+
+Customer → Project → Payment Request → multiple Payments is the customer
+collection domain, separate from internal project budgets. Direct payments
+may have no request. Paid/remaining totals are derived from CONFIRMED receipts;
+overpayments remain visible. All new FKs restrict deletion. Requests soft-delete,
+payments cannot physically delete/truncate, and both histories are append-only.
+Services must enforce matching project/customer/request/currency and atomic
+current-status/history writes; the database does not implement those workflows.

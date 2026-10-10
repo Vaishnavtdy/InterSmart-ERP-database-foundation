@@ -62,6 +62,11 @@ Project budgets represent internal execution funding, not customer payments.
 Keep budget definitions, allocations, and transactions separate from Project;
 derive financial balances from transactions rather than cached balance fields.
 
+Customer payments are independent of internal project budgets. A payment request
+can receive multiple payments or a payment can be recorded without a request.
+Calculate paid/remaining from confirmed receipts; preserve overpayments and
+financial history rather than deleting receipts.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

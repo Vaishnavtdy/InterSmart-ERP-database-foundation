@@ -73,17 +73,23 @@ model User {
   assignedProjectActions ProjectAction[]        @relation("ProjectActionAssignee")
   createdProjectActions  ProjectAction[]        @relation("ProjectActionCreator")
 
-  createdProjectScopes      ProjectScope[]      @relation("ScopeCreator")
-  approvedProjectScopes     ProjectScope[]      @relation("ScopeApprover")
-  createdBusinessAnalyses   BusinessAnalysis[]  @relation("AnalysisCreator")
-  updatedBusinessAnalyses   BusinessAnalysis[]  @relation("AnalysisUpdater")
-  uploadedFiles             File[]
-  uploadedProjectResources  ProjectResource[]
-  createdProjectBudgets     ProjectBudget[]     @relation("BudgetCreator")
-  updatedProjectBudgets     ProjectBudget[]     @relation("BudgetUpdater")
-  targetedBudgetAllocations BudgetAllocation[]  @relation("AllocationTargetUser")
-  createdBudgetAllocations  BudgetAllocation[]  @relation("AllocationCreator")
-  createdBudgetTransactions BudgetTransaction[]
+  createdProjectScopes        ProjectScope[]                @relation("ScopeCreator")
+  approvedProjectScopes       ProjectScope[]                @relation("ScopeApprover")
+  createdBusinessAnalyses     BusinessAnalysis[]            @relation("AnalysisCreator")
+  updatedBusinessAnalyses     BusinessAnalysis[]            @relation("AnalysisUpdater")
+  uploadedFiles               File[]
+  uploadedProjectResources    ProjectResource[]
+  createdProjectBudgets       ProjectBudget[]               @relation("BudgetCreator")
+  updatedProjectBudgets       ProjectBudget[]               @relation("BudgetUpdater")
+  targetedBudgetAllocations   BudgetAllocation[]            @relation("AllocationTargetUser")
+  createdBudgetAllocations    BudgetAllocation[]            @relation("AllocationCreator")
+  createdBudgetTransactions   BudgetTransaction[]
+  requestedPayments           PaymentRequest[]              @relation("PaymentRequester")
+  approvedPaymentRequests     PaymentRequest[]              @relation("PaymentApprover")
+  rejectedPaymentRequests     PaymentRequest[]              @relation("PaymentRejector")
+  recordedPayments            Payment[]
+  paymentStatusChanges        PaymentStatusHistory[]
+  paymentRequestStatusChanges PaymentRequestStatusHistory[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -138,7 +144,9 @@ model Customer {
   leads                 Lead[]
   proposals             Proposal[]
 
-  projects Project[]
+  projects        Project[]
+  paymentRequests PaymentRequest[]
+  payments        Payment[]
 
   @@index([companyName])
   @@index([status, deletedAt])
@@ -477,6 +485,8 @@ model Project {
   files                File[]
   resources            ProjectResource[]
   budget               ProjectBudget?
+  paymentRequests      PaymentRequest[]
+  payments             Payment[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -868,4 +878,152 @@ model BudgetTransaction {
   @@index([createdById])
   @@index([createdAt])
   @@map("budget_transactions")
+}
+
+enum PaymentType {
+  ADVANCE
+  MILESTONE
+  FINAL
+  ADDITIONAL
+  AMC
+  RENEWAL
+  OTHER
+}
+
+enum PaymentRequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  UPI
+  CASH
+  CARD
+  CHEQUE
+  PAYPAL
+  STRIPE
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  REVERSED
+  CANCELLED
+}
+
+model PaymentRequest {
+  id                 String                        @id @default(uuid()) @db.Uuid
+  paymentRequestCode String                        @unique @map("payment_request_code") @db.VarChar(32)
+  projectId          String                        @map("project_id") @db.Uuid
+  customerId         String                        @map("customer_id") @db.Uuid
+  requestedById      String                        @map("requested_by_id") @db.Uuid
+  amount             Decimal                       @db.Decimal(18, 2)
+  currency           String                        @default("INR") @db.VarChar(3)
+  paymentType        PaymentType                   @map("payment_type")
+  description        String?                       @db.Text
+  dueDate            DateTime?                     @map("due_date") @db.Timestamptz(6)
+  status             PaymentRequestStatus          @default(DRAFT)
+  requestedAt        DateTime                      @default(now()) @map("requested_at") @db.Timestamptz(6)
+  approvedAt         DateTime?                     @map("approved_at") @db.Timestamptz(6)
+  approvedById       String?                       @map("approved_by_id") @db.Uuid
+  rejectedAt         DateTime?                     @map("rejected_at") @db.Timestamptz(6)
+  rejectedById       String?                       @map("rejected_by_id") @db.Uuid
+  rejectionReason    String?                       @map("rejection_reason") @db.Text
+  createdAt          DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime?                     @map("deleted_at") @db.Timestamptz(6)
+  project            Project                       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  customer           Customer                      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  requestedBy        User                          @relation("PaymentRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  approvedBy         User?                         @relation("PaymentApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  rejectedBy         User?                         @relation("PaymentRejector", fields: [rejectedById], references: [id], onDelete: Restrict)
+  payments           Payment[]
+  statusHistory      PaymentRequestStatusHistory[]
+
+  @@index([projectId, status])
+  @@index([customerId])
+  @@index([requestedById])
+  @@index([approvedById])
+  @@index([rejectedById])
+  @@index([status, deletedAt])
+  @@index([paymentType])
+  @@index([dueDate])
+  @@index([createdAt])
+  @@map("payment_requests")
+}
+
+model Payment {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  paymentCode          String                 @unique @map("payment_code") @db.VarChar(32)
+  paymentRequestId     String?                @map("payment_request_id") @db.Uuid
+  projectId            String                 @map("project_id") @db.Uuid
+  customerId           String                 @map("customer_id") @db.Uuid
+  amount               Decimal                @db.Decimal(18, 2)
+  currency             String                 @default("INR") @db.VarChar(3)
+  paymentMethod        PaymentMethod          @map("payment_method")
+  paymentDate          DateTime               @map("payment_date") @db.Timestamptz(6)
+  transactionReference String?                @map("transaction_reference") @db.VarChar(255)
+  receiptNumber        String?                @unique @map("receipt_number") @db.VarChar(64)
+  status               PaymentStatus          @default(PENDING)
+  notes                String?                @db.Text
+  recordedById         String                 @map("recorded_by_id") @db.Uuid
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  paymentRequest       PaymentRequest?        @relation(fields: [paymentRequestId], references: [id], onDelete: Restrict)
+  project              Project                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  customer             Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  recordedBy           User                   @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  statusHistory        PaymentStatusHistory[]
+
+  @@index([paymentRequestId])
+  @@index([projectId, status])
+  @@index([customerId])
+  @@index([status])
+  @@index([paymentMethod])
+  @@index([paymentDate])
+  @@index([recordedById])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+model PaymentStatusHistory {
+  id          String         @id @default(uuid()) @db.Uuid
+  paymentId   String         @map("payment_id") @db.Uuid
+  fromStatus  PaymentStatus? @map("from_status")
+  toStatus    PaymentStatus  @map("to_status")
+  changedById String         @map("changed_by_id") @db.Uuid
+  reason      String?        @db.Text
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  payment     Payment        @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  changedBy   User           @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([paymentId, createdAt])
+  @@index([changedById])
+  @@map("payment_status_history")
+}
+
+model PaymentRequestStatusHistory {
+  id               String                @id @default(uuid()) @db.Uuid
+  paymentRequestId String                @map("payment_request_id") @db.Uuid
+  fromStatus       PaymentRequestStatus? @map("from_status")
+  toStatus         PaymentRequestStatus  @map("to_status")
+  changedById      String                @map("changed_by_id") @db.Uuid
+  reason           String?               @db.Text
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  paymentRequest   PaymentRequest        @relation(fields: [paymentRequestId], references: [id], onDelete: Restrict)
+  changedBy        User                  @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([paymentRequestId, createdAt])
+  @@index([changedById])
+  @@map("payment_request_status_history")
 }

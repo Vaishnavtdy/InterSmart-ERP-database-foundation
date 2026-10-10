@@ -549,3 +549,100 @@ and creation time. Leading budget prefixes cover budget-only queries.
 SQL checks cover finite/nonnegative definitions, finite/nonzero signed events,
 event polarity, currency syntax, and effective-date order. No new triggers or
 seed records are needed.
+
+## Payments & Payment Requests (Database Step 10)
+
+Migration: `20261010121336_payments_payment_requests`. It adds four tables and
+four enums transactionally; it does not replace earlier structures or data.
+No payment, invoice, or suitable generic history model existed before this step.
+Project history is project-specific, so it cannot represent these entities.
+
+### Customer payment domain
+
+Customer → Project → Payment Request → multiple Payments.
+Payments may also be recorded directly without a formal request.
+Customer payments are separate from internal project budgets: there are no
+payment-to-budget foreign keys, automatic budget events, or shared balances.
+
+| Model / table | Required fields | Nullable fields |
+| --- | --- | --- |
+| `PaymentRequest` / `payment_requests` | UUID id; unique paymentRequestCode (32); projectId, customerId, requestedById; amount NUMERIC(18,2); currency (3, default INR); paymentType; status (default DRAFT); requestedAt (default now); createdAt; updatedAt | description; dueDate; approvedAt/approvedById; rejectedAt/rejectedById; rejectionReason; deletedAt |
+| `Payment` / `payments` | UUID id; unique paymentCode (32); projectId, customerId, recordedById; amount NUMERIC(18,2); currency (3, default INR); paymentMethod; explicit paymentDate; status (default PENDING); createdAt; updatedAt | paymentRequestId; transactionReference (255); unique receiptNumber (64); notes |
+| `PaymentStatusHistory` / `payment_status_history` | UUID id; paymentId; toStatus; changedById; createdAt | fromStatus; reason |
+| `PaymentRequestStatusHistory` / `payment_request_status_history` | UUID id; paymentRequestId; toStatus; changedById; createdAt | fromStatus; reason |
+
+All timestamps are TIMESTAMPTZ(6). Prisma generates UUIDs and maintains updatedAt
+on requests/payments; raw SQL writers must provide/update those values. Histories
+have no updatedAt/deletedAt. A null fromStatus represents initial creation.
+paymentDate is required with no default: actual receipt date must not silently
+be replaced by entry creation time. requestedAt defaults to request creation.
+No milestone table is needed; multiple MILESTONE requests represent staged dues.
+
+### Enums
+
+- `PaymentType`: ADVANCE, MILESTONE, FINAL, ADDITIONAL, AMC, RENEWAL, OTHER.
+- `PaymentRequestStatus`: DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, SENT,
+  PARTIALLY_PAID, PAID, OVERDUE, CANCELLED.
+- `PaymentMethod`: BANK_TRANSFER, UPI, CASH, CARD, CHEQUE, PAYPAL, STRIPE, OTHER.
+- `PaymentStatus`: PENDING, CONFIRMED, FAILED, REVERSED, CANCELLED.
+
+Methods classify records only; no gateway integrations are configured.
+
+### Relationships, indexes and constraints
+
+Requests reference Project, Customer, requester User, optional approver User,
+and optional rejector User. Payments reference Project, Customer, recorder
+User, and optional PaymentRequest. Each history references its parent and
+changed-by User. All 13 FKs use ON DELETE RESTRICT, preserving attribution.
+Codes remain globally unique even after request soft deletion. Nullable unique
+receiptNumber uses PostgreSQL's ordinary unique index: multiple NULLs are
+allowed, duplicate populated values are not. transactionReference is not
+unique and may be reused.
+
+Request indexes cover project/status, customer, requester/approver/rejector,
+status/deletedAt, paymentType, dueDate, and createdAt. Payment indexes cover
+request, project/status, customer, status, method, paymentDate, recorder, and
+createdAt. Each history indexes parent/createdAt and changedById. Composite
+project/status indexes cover project-only lookups without redundant indexes.
+
+Simple SQL checks require finite positive amounts, uppercase three-letter
+currency syntax, and paired approval/rejection actor-and-time fields. These
+pairs do not implement an approval state machine or department restrictions.
+Real currency codes and supported minor-unit precision must be validated by
+future services; currencies needing more than two decimals require review.
+
+### Calculations and future service contracts
+
+Paid amount = SUM(amount of CONFIRMED payments linked to the request).
+Remaining = requested amount minus paid; retain negative remaining as an
+overpayment rather than clamping or rejecting receipt records. Multiple partial
+payments and overpayments are allowed. Neither paid_amount nor remaining_amount
+is stored on requests. Pending/failed/reversed/cancelled payments do not count.
+Direct receipts are reported against their project/customer, not invented
+request rows. Aggregate only consistent currencies; no conversion is defined.
+
+Future services must validate request.customerId = project.customerId and,
+when paymentRequestId is set, matching project/customer/currency across the
+payment, request and project. Independent FKs intentionally do not enforce
+these cross-entity business rules. Preserve historical ownership after receipts
+exist; do not silently reassign a project's financial records to a new customer.
+Code generation, Accounts authorization, retries/idempotency, duplicate external
+receipt detection, status transitions, approval decisions, and overdue rules
+belong to future services.
+
+Current status updates and corresponding attributed from/to history inserts
+must commit atomically. History is not auto-created by the database; future
+writers must populate it and define ordering when timestamps tie.
+The append-only history triggers reject UPDATE, DELETE, and TRUNCATE.
+
+Requests follow deletedAt soft deletion. Payments have no deletedAt; preserve
+them through CANCELLED/REVERSED statuses. The migration rejects physical DELETE
+or TRUNCATE of **all** payments, including CONFIRMED records and records later
+reversed/cancelled. This is deliberately stronger than confirmed-only retention.
+Payment UPDATE remains allowed for future status/entry correction policies;
+this foundation does not seal all financial fields or implement those policies.
+Superuser disabling of triggers is outside ordinary application guarantees.
+
+No receipts binary column, new file resource enum, MinIO metadata duplication,
+invoice/tax/credit-note models, generic approvals, notifications, AWS services,
+or financial workflow/API/UI is added. No seed data is needed.

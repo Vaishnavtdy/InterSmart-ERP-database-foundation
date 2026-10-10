@@ -622,3 +622,54 @@
 - **Dates/indexes:** TIMESTAMPTZ(6) everywhere; effectiveFrom/transactionDate
   default now, effectiveUntil nullable and ordered. Indexes cover owner/date,
   type, employee/department attribution, and chronology. No seed is needed.
+
+## Customer payments and payment requests
+
+- **Migration:** `20261010121336_payments_payment_requests`, incremental,
+  transactional and additive. Existing enums, tables and migrations remain.
+- **Separation:** Customer receipts are independent of internal execution
+  budgets. Receiving money does not allocate project funding, and there are no
+  payment/budget FKs or automatic ledger movements.
+- **Requests vs receipts:** A request describes money due; multiple receipts
+  may fulfill it. Direct payment entry allows null paymentRequestId. Project
+  and Customer remain required on both entities for historical reporting.
+- **Consistency boundary:** As requested, independent FKs establish valid
+  references; future services validate matching project/customer/request and
+  currency. No cross-entity synchronization trigger is introduced. Financial
+  ownership must not be silently rewritten during later customer reassignment.
+- **Money:** NUMERIC(18,2), default INR, uppercase three-letter syntax, finite
+  positive amounts. Zero/negative receipts are not money received; reversal
+  uses status/history rather than signed negative payment rows. Budget signed
+  ledger conventions do not apply here. Currency minor units/ISO validity are
+  future validation concerns; no currency model or FX system is added.
+- **Totals:** Derive paid/remaining from CONFIRMED linked receipts, never
+  duplicated request columns. Exclude failed/pending/reversed/cancelled rows.
+  Overpayments are allowed and visible as negative remaining. Direct receipts
+  do not imply a request. Do not aggregate mixed currencies.
+- **Approval:** Nullable actor/time pairs retain basic approvals/rejections,
+  with paired-presence checks only. Accounts permissions, resubmission policy,
+  transition validation, and mutual exclusivity/reset of prior decision metadata
+  belong to future services; no department checks or generic engine.
+- **Identifiers:** Both codes are globally unique VARCHAR(32); generation and
+  retry/idempotency policy belong to services. Optional VARCHAR(64) receiptNumber
+  uses ordinary PostgreSQL unique NULL semantics; populated values are unique,
+  multiple NULLs are valid. transactionReference VARCHAR(255) is intentionally
+  nonunique. Blank receipt numbers must be normalized to NULL by future writers.
+- **Dates:** TIMESTAMPTZ(6). dueDate/approval/rejection dates are nullable;
+  requestedAt defaults now; paymentDate is required without a default and may
+  predate createdAt. Avoid an artificial receipt-date/entry-date equality check.
+- **History:** Existing ProjectStatusHistory has project FKs/enums/reason enums,
+  not a reusable generic audit model. Add exactly the two requested typed history
+  models, mapped to singular table names from the brief. Reuse the append-only
+  convention via one shared new guard function, without altering old history.
+  fromStatus is nullable for initial entries, reason nullable, toStatus and
+  changedBy required. No updatedAt/deletedAt and no automatic state/history writer.
+- **Retention deviation:** Preserve every Payment, not just currently confirmed
+  ones. Small DELETE/TRUNCATE guards prevent deleting a confirmed record after
+  downgrading its state or reversing it. Requests use soft deletion, history is
+  append-only, and every new FK is restrictive. Payment status UPDATE is allowed;
+  atomic status/history writes and financial-field correction policy remain
+  future service responsibilities.
+- **Scope:** No provider integration, notifications, invoices, generic approval,
+  new file/resource metadata, seed fixtures, lifecycle engine or API/UI behavior.
+  Payment methods including STRIPE/PAYPAL are classification values only.

@@ -1,0 +1,1205 @@
+# Step 10 — Payments & Payment Requests
+
+You are continuing the database implementation of our internal ERP.
+
+## Current implementation status
+
+The following database steps are already completed:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Proposal Versions / Proposal Items
+6. Projects
+7. Project Scope / Business Analysis
+8. Project Files / Resources
+9. Project Budget / Budget Transactions
+
+The next database step is:
+
+> **Step 10 — Payments & Payment Requests**
+
+Do not recreate, replace, rename, or remove any existing models.
+
+---
+
+# 1. First inspect the existing implementation
+
+Before making any changes:
+
+- Inspect the current Prisma schema.
+- Inspect all migrations.
+- Inspect `projects`.
+- Inspect `customers`.
+- Inspect proposals and proposal versions.
+- Inspect `project_budgets`.
+- Inspect existing enums.
+- Inspect existing documentation.
+- Check whether payment/invoice models already exist.
+
+Use the existing implementation as the source of truth.
+
+Do not blindly recreate anything that already exists.
+
+---
+
+# 2. Important domain separation
+
+There are two different financial concepts in this ERP.
+
+## Internal project budget
+
+Already implemented in Step 9:
+
+```text
+Project
+   ↓
+Project Budget
+   ↓
+Budget Allocations
+   ↓
+Budget Transactions
+```
+
+This represents internal project execution budget.
+
+## Customer payments
+
+This step represents:
+
+```text
+Customer
+   ↓
+Project
+   ↓
+Payment Request
+   ↓
+Customer Payment
+```
+
+This represents money that the customer is expected to pay or has paid.
+
+These two domains MUST remain separate.
+
+Do not connect customer payments directly to `budget_transactions`.
+
+---
+
+# 3. Business requirements
+
+The system must eventually support:
+
+- Payment requests
+- Payment milestones
+- Customer payment tracking
+- Payment approval by Accounts
+- Pending payments
+- Partial payments
+- Full payments
+- Payment history
+- Payment references
+- Payment receipts
+- Payment status
+- Payment follow-up
+- Payment-related project actions
+- Payment notifications later
+
+This step creates the database foundation only.
+
+Do not implement notifications or approval workflows yet.
+
+---
+
+# 4. Create `payment_requests`
+
+Create a `payment_requests` model.
+
+Recommended fields:
+
+```text id="ryq1b6"
+id
+payment_request_code
+project_id
+customer_id
+requested_by_id
+amount
+currency
+payment_type
+description
+due_date
+status
+requested_at
+approved_at
+approved_by_id
+rejected_at
+rejected_by_id
+rejection_reason
+created_at
+updated_at
+deleted_at
+```
+
+---
+
+# 5. Payment request code
+
+`payment_request_code` should be unique.
+
+Example:
+
+```text id="6fnw9e"
+PR-2026-000001
+```
+
+The exact code-generation strategy should remain in the application service.
+
+Do not implement database-side sequence logic unless the existing project architecture already uses it.
+
+---
+
+# 6. Project relationship
+
+Every payment request should normally belong to a project.
+
+```text id="bjxw2n"
+payment_requests.project_id
+    → projects.id
+```
+
+This allows the ERP to answer:
+
+- How much has this project requested?
+- How much has the customer paid?
+- Which project has pending payment?
+- Which project requires payment follow-up?
+
+---
+
+# 7. Customer relationship
+
+Also connect payment requests to the customer.
+
+```text id="08f4bw"
+payment_requests.customer_id
+    → customers.id
+```
+
+Although the project already points to a customer, explicitly storing the customer on the payment request provides:
+
+- historical consistency
+- simpler queries
+- easier reporting
+
+However, document that application logic must ensure:
+
+```text id="n89w3y"
+payment_requests.customer_id
+=
+projects.customer_id
+```
+
+for project-based payment requests.
+
+Do not use a database trigger unless the existing architecture requires one.
+
+---
+
+# 8. Requested by
+
+Create:
+
+```text id="yn5vml"
+requested_by_id
+```
+
+referencing:
+
+```text id="5lq1ji"
+users.id
+```
+
+This identifies the employee who created/requested the payment.
+
+Possible users:
+
+- Sales
+- Accounts
+- PMO
+- Project Manager
+- Project Coordinator
+
+Do not hard-code department restrictions into the database.
+
+Authorization will be handled by the application.
+
+---
+
+# 9. Payment amount
+
+Use:
+
+```text id="6p3u9z"
+Decimal / NUMERIC
+```
+
+Never use:
+
+```text id="1p1z0p"
+float
+double
+```
+
+for money.
+
+---
+
+# 10. Currency
+
+Use a string field:
+
+```text id="9x0q8f"
+currency
+```
+
+Example:
+
+```text id="q4n4zo"
+INR
+```
+
+Do not create a currency table in this step.
+
+---
+
+# 11. Payment type
+
+Create an enum.
+
+Recommended:
+
+```text id="5f54bv"
+ADVANCE
+MILESTONE
+FINAL
+ADDITIONAL
+AMC
+RENEWAL
+OTHER
+```
+
+These correspond to the business lifecycle.
+
+For example:
+
+```text id="g5n9s8"
+ADVANCE
+```
+
+before project execution.
+
+```text id="8o2jjm"
+MILESTONE
+```
+
+during project execution.
+
+```text id="3t4q1m"
+FINAL
+```
+
+when the project is nearing completion.
+
+```text id="1m9e9p"
+AMC
+```
+
+for maintenance contracts.
+
+---
+
+# 12. Payment request status
+
+Create:
+
+```text id="l2y6p7"
+payment_request_status
+```
+
+with:
+
+```text id="p9n3kh"
+DRAFT
+PENDING_APPROVAL
+APPROVED
+REJECTED
+SENT
+PARTIALLY_PAID
+PAID
+OVERDUE
+CANCELLED
+```
+
+The exact transition rules belong to the application layer.
+
+The database only stores the current state.
+
+---
+
+# 13. Approval fields
+
+The business requires Accounts to approve payment requests.
+
+For now, support the basic approval metadata:
+
+```text id="sjg0zt"
+approved_at
+approved_by_id
+
+rejected_at
+rejected_by_id
+rejection_reason
+```
+
+Both approval/rejection user IDs reference `users`.
+
+Do NOT create the generic approval engine yet.
+
+The generic approval system will be introduced later and can eventually replace or extend these fields.
+
+---
+
+# 14. Create `payments`
+
+Create a separate `payments` model.
+
+This represents an actual payment received from the customer.
+
+Recommended fields:
+
+```text id="4m1d3c"
+id
+payment_code
+payment_request_id
+project_id
+customer_id
+amount
+currency
+payment_method
+payment_date
+transaction_reference
+receipt_number
+status
+notes
+recorded_by_id
+created_at
+updated_at
+```
+
+---
+
+# 15. Payment code
+
+Create:
+
+```text id="8w1zv2"
+payment_code
+```
+
+and make it unique.
+
+Example:
+
+```text id="b4c9n2"
+PAY-2026-000001
+```
+
+Code generation belongs in the application service.
+
+---
+
+# 16. Payment request relationship
+
+A payment should normally be associated with a payment request:
+
+```text id="12u3yx"
+payments.payment_request_id
+    → payment_requests.id
+```
+
+However, make this relationship nullable.
+
+Reason:
+
+Sometimes Accounts may record a payment directly when there was no formal payment request.
+
+Example:
+
+```text id="qv3j7h"
+Customer transferred money directly.
+Accounts records payment manually.
+```
+
+Therefore:
+
+```text id="r8t5pl"
+payment_request_id = nullable
+```
+
+---
+
+# 17. Project and customer relationships
+
+Keep explicit references:
+
+```text id="uw2f6j"
+payments.project_id
+    → projects.id
+
+payments.customer_id
+    → customers.id
+```
+
+Application logic should ensure the project/customer/payment-request relationships are consistent.
+
+---
+
+# 18. Payment methods
+
+Create an enum:
+
+```text id="5jsq7c"
+BANK_TRANSFER
+UPI
+CASH
+CARD
+CHEQUE
+PAYPAL
+STRIPE
+OTHER
+```
+
+Do not assume every payment provider is available.
+
+This is a classification field, not a payment gateway implementation.
+
+Do not implement Stripe/PayPal integrations in this step.
+
+---
+
+# 19. Payment status
+
+Create:
+
+```text id="x4kjv8"
+payment_status
+```
+
+Recommended:
+
+```text id="9z2j8a"
+PENDING
+CONFIRMED
+FAILED
+REVERSED
+CANCELLED
+```
+
+Important:
+
+A payment request can be `PAID` while individual payment records represent the actual confirmed transactions.
+
+---
+
+# 20. Transaction reference
+
+Create:
+
+```text id="6y5j4m"
+transaction_reference
+```
+
+nullable.
+
+Examples:
+
+```text id="z7t5ga"
+UPI transaction ID
+Bank reference
+Cheque number
+Gateway transaction ID
+```
+
+Do not assume every payment method has a transaction reference.
+
+Do not make this globally unique because some external systems may reuse/reference values differently.
+
+If the business later confirms uniqueness requirements, enforce them then.
+
+---
+
+# 21. Receipt number
+
+Create:
+
+```text id="s5a1eq"
+receipt_number
+```
+
+nullable.
+
+Make it unique if populated, using a database design compatible with the current Prisma/PostgreSQL version.
+
+If partial unique constraints are inconvenient with the current Prisma setup, document the intended rule and enforce it in the service layer.
+
+---
+
+# 22. Payment date
+
+Create:
+
+```text id="m3j7xe"
+payment_date
+```
+
+This is the date/time the payment was actually received/recorded.
+
+Do not use `created_at` as the financial payment date.
+
+For example:
+
+```text id="4k4w9x"
+payment_date = 2026-10-10
+created_at   = 2026-10-11
+```
+
+can be valid if Accounts entered the payment one day later.
+
+---
+
+# 23. Recorded by
+
+Create:
+
+```text id="e9r4fw"
+recorded_by_id
+```
+
+referencing:
+
+```text id="w7d0y2"
+users.id
+```
+
+This identifies the employee who entered the payment.
+
+---
+
+# 24. Payment history
+
+Do not rely only on the current status.
+
+The ERP will eventually need payment history/audit information.
+
+For this step, create a lightweight:
+
+```text id="p6w0za"
+payment_status_history
+```
+
+model.
+
+Recommended fields:
+
+```text id="9a7c5e"
+id
+payment_id
+from_status
+to_status
+changed_by_id
+reason
+created_at
+```
+
+This preserves status changes such as:
+
+```text id="k1v7d8"
+PENDING
+   ↓
+CONFIRMED
+```
+
+or:
+
+```text id="n7m2qr"
+CONFIRMED
+   ↓
+REVERSED
+```
+
+Use the existing status-history conventions if the project already has a generic history pattern.
+
+If an equivalent reusable history model already exists, reuse it rather than creating a duplicate.
+
+---
+
+# 25. Payment request history
+
+Likewise, payment request state changes should eventually be auditable.
+
+Before creating another history model, inspect whether the project already has a generic history/audit structure.
+
+If no suitable structure exists, create:
+
+```text id="3j4p8n"
+payment_request_status_history
+```
+
+Recommended:
+
+```text id="6q8m1a"
+id
+payment_request_id
+from_status
+to_status
+changed_by_id
+reason
+created_at
+```
+
+If an existing generic status history mechanism is suitable, reuse it.
+
+Do not create duplicate history systems.
+
+---
+
+# 26. Payment allocation / partial payments
+
+A payment request may be paid in multiple transactions.
+
+Example:
+
+```text id="m4d7v0"
+Payment Request:
+₹100,000
+
+Payment 1:
+₹40,000
+
+Payment 2:
+₹30,000
+
+Payment 3:
+₹30,000
+```
+
+The schema must therefore support:
+
+```text id="q1e4cv"
+payment_request
+    ↓
+multiple payments
+```
+
+Do NOT put:
+
+```text id="x6c8yz"
+paid_amount
+remaining_amount
+```
+
+as source-of-truth fields on `payment_requests`.
+
+These should be calculated from confirmed payments.
+
+---
+
+# 27. Payment calculations
+
+Eventually:
+
+```text id="8a3p7w"
+Requested Amount
+=
+payment_request.amount
+```
+
+and:
+
+```text id="6f4c1n"
+Paid Amount
+=
+SUM(confirmed payments associated with the request)
+```
+
+and:
+
+```text id="p3q7k1"
+Remaining Amount
+=
+Requested Amount - Paid Amount
+```
+
+These are calculated values.
+
+Do not store them as duplicated source-of-truth columns.
+
+---
+
+# 28. Overpayment
+
+The system must not silently lose overpayments.
+
+Example:
+
+```text id="0g9b8v"
+Requested = ₹100,000
+Paid = ₹110,000
+```
+
+The database should allow the payment record to exist.
+
+Do not add complicated automatic accounting logic in this migration.
+
+The application/reporting layer can later identify:
+
+```text id="8m4q5k"
+overpayment = ₹10,000
+```
+
+and handle it according to company policy.
+
+---
+
+# 29. Payment receipts/files
+
+Do not create a dedicated binary receipt column.
+
+Payment receipts may eventually use the existing Step 8 file system:
+
+```text id="v3h7cx"
+files
+project_resources
+```
+
+However, do not force a payment-specific resource type into Step 8 unless genuinely needed.
+
+If receipt attachments are required later, they can be associated through a clean file/reference model.
+
+Do not duplicate MinIO metadata inside `payments`.
+
+---
+
+# 30. Customer payment vs project budget
+
+This distinction is critical.
+
+Example:
+
+```text id="1h7w9m"
+Customer pays:
+₹500,000
+```
+
+This does NOT automatically mean:
+
+```text id="l2r5qp"
+Project budget = ₹500,000
+```
+
+They are independent financial concepts.
+
+Customer payment:
+
+```text id="x4g7v2"
+Money received from customer
+```
+
+Project budget:
+
+```text id="e7k2z8"
+Internal project execution budget
+```
+
+Do not create automatic foreign-key or transaction relationships between them.
+
+---
+
+# 31. Indexes
+
+Add appropriate indexes.
+
+### `payment_requests`
+
+At minimum:
+
+```text id="n7w2v6"
+project_id
+customer_id
+requested_by_id
+status
+payment_type
+due_date
+created_at
+```
+
+Consider:
+
+```text id="q8f1mz"
+project_id + status
+```
+
+if useful.
+
+### `payments`
+
+At minimum:
+
+```text id="u5d7q3"
+payment_request_id
+project_id
+customer_id
+status
+payment_method
+payment_date
+recorded_by_id
+created_at
+```
+
+### History tables
+
+At minimum:
+
+```text id="x4h8p2"
+payment_id + created_at
+payment_request_id + created_at
+changed_by_id
+```
+
+Do not create excessive indexes.
+
+---
+
+# 32. Foreign keys
+
+Expected relationships:
+
+```text id="h5x2y8"
+payment_requests.project_id
+    → projects.id
+
+payment_requests.customer_id
+    → customers.id
+
+payment_requests.requested_by_id
+    → users.id
+
+payment_requests.approved_by_id
+    → users.id
+
+payment_requests.rejected_by_id
+    → users.id
+
+payments.payment_request_id
+    → payment_requests.id
+
+payments.project_id
+    → projects.id
+
+payments.customer_id
+    → customers.id
+
+payments.recorded_by_id
+    → users.id
+
+payment_status_history.payment_id
+    → payments.id
+
+payment_status_history.changed_by_id
+    → users.id
+
+payment_request_status_history.payment_request_id
+    → payment_requests.id
+
+payment_request_status_history.changed_by_id
+    → users.id
+```
+
+Follow the project's existing Prisma relation conventions.
+
+---
+
+# 33. Soft deletion
+
+Follow the existing project's soft-delete convention.
+
+If existing business entities use:
+
+```text id="r7y2pz"
+deleted_at
+```
+
+then `payment_requests` should follow the same convention.
+
+Do not casually soft-delete financial transaction records if doing so would destroy financial history.
+
+For actual `payments`, prefer preserving the record and using:
+
+```text id="d3v8j1"
+CANCELLED
+REVERSED
+```
+
+where appropriate.
+
+Do not physically delete confirmed financial records.
+
+Document this decision.
+
+---
+
+# 34. No invoice system yet
+
+Do NOT create a complete invoicing system in this step.
+
+Do not create:
+
+```text id="n4r8y2"
+invoices
+invoice_items
+tax_invoices
+credit_notes
+debit_notes
+```
+
+unless an equivalent existing requirement/model already exists.
+
+Those are a separate accounting domain.
+
+This step is specifically:
+
+> Payment Requests + Customer Payments
+
+---
+
+# 35. No generic approval engine yet
+
+Do not create:
+
+```text id="r8m3w7"
+approval_requests
+approval_steps
+approval_actions
+```
+
+The payment request can temporarily use:
+
+```text id="a4v9k2"
+approved_by_id
+approved_at
+rejected_by_id
+rejected_at
+rejection_reason
+```
+
+A future generic approval engine can replace/extend this.
+
+---
+
+# 36. No notifications yet
+
+Do not implement:
+
+- email notifications
+- Socket.IO notifications
+- push notifications
+- payment reminders
+- overdue alerts
+
+Those belong to the future notification system.
+
+Only store the data required to support them later, such as:
+
+```text id="m2j6b4"
+due_date
+status
+```
+
+---
+
+# 37. Migration
+
+Create a new incremental Prisma migration.
+
+Do NOT:
+
+- reset the database
+- delete existing migrations
+- modify previous migrations
+- drop existing tables
+- recreate the schema
+- remove existing relationships
+
+Only add the structures required for Step 10.
+
+---
+
+# 38. Validation
+
+Run the project's normal validation commands.
+
+At minimum:
+
+```bash id="y8g5n3"
+npx prisma validate
+```
+
+Then:
+
+- generate Prisma Client
+- run the migration
+- run existing tests
+- run type checks if configured
+
+Verify:
+
+- Decimal fields are correct
+- enums compile
+- foreign keys work
+- nullable relationships work
+- payment request → payments relation works
+- history relations work
+- existing models remain valid
+
+---
+
+# 39. Documentation
+
+Update:
+
+```text id="s2j7q4"
+/docs/database/README.md
+/docs/database/ERD.md
+/docs/database/DECISIONS.md
+```
+
+Document clearly:
+
+### Payment domain
+
+```text id="j6k3w8"
+Customer
+   ↓
+Project
+   ↓
+Payment Request
+   ↓
+Payments
+```
+
+Document:
+
+> Customer payments are separate from internal project budgets.
+
+Document:
+
+> Paid and remaining amounts are calculated from confirmed payment records rather than stored as source-of-truth fields.
+
+Document:
+
+> Confirmed financial transactions should not be physically deleted.
+
+---
+
+# 40. Final verification report
+
+After completing the step, report:
+
+## Models created
+
+```text id="c6f9p2"
+payment_requests
+payments
+payment_status_history
+payment_request_status_history
+```
+
+Only list history models if they were actually created; reuse an existing generic history mechanism if appropriate.
+
+## Enums created
+
+```text id="v8m2q7"
+payment type
+payment request status
+payment method
+payment status
+```
+
+## Relationships
+
+List all relationships.
+
+## Indexes
+
+List important indexes.
+
+## Constraints
+
+List important unique constraints and foreign keys.
+
+## Migration
+
+Report:
+
+```text id="u7n3x5"
+migration name
+migration status
+```
+
+## Validation
+
+Report:
+
+```text id="q5w8m1"
+Prisma validation
+migration
+Prisma Client generation
+tests/type checks
+```
+
+## Documentation
+
+List modified documentation files.
+
+## Design decisions
+
+Explain any deviation from this specification.
+
+---
+
+# Critical rules
+
+1. Do not recreate previous models.
+2. Do not modify previous migrations.
+3. Do not reset the database.
+4. Keep customer payments separate from project budgets.
+5. Use Decimal/NUMERIC for money.
+6. Support multiple payments against one payment request.
+7. Do not store paid/remaining amounts as source-of-truth fields.
+8. Preserve financial transaction history.
+9. Do not physically delete confirmed payments.
+10. Do not implement invoices yet.
+11. Do not implement the generic approval engine yet.
+12. Do not implement notifications yet.
+13. Do not introduce AWS services.
+14. Follow the existing Prisma architecture.
+15. Inspect the current implementation before modifying it.
+16. Keep the migration incremental and production-safe.
+
+# STOP CONDITION
+
+After completing **Step 10 — Payments & Payment Requests**, stop.
+
+Do not automatically continue to Step 11.
+
+Wait for the next instruction.

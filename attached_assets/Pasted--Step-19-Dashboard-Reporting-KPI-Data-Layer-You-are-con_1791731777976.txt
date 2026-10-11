@@ -1,0 +1,1081 @@
+# Step 19 — Dashboard / Reporting / KPI Data Layer
+
+You are continuing development of the existing **InterSmart Internal ERP**.
+
+This is **Step 19 only**.
+
+## Objective
+
+Prepare the database architecture required for:
+
+1. Management dashboard
+2. Sales dashboard
+3. Accounts dashboard
+4. PMO dashboard
+5. Project Coordinator dashboard
+6. UI dashboard
+7. UX dashboard
+8. Development dashboard
+9. QA dashboard
+10. HR dashboard
+11. Employee/team performance reporting
+12. Project KPI reporting
+13. Financial KPI reporting
+14. Operational reporting
+15. Saved report configurations
+
+The most important rule for this step:
+
+> **Do not store dashboard numbers as source-of-truth data.**
+
+Dashboards must calculate their values from the existing transactional tables.
+
+Do not build frontend dashboards in this step.
+
+Do not build APIs/controllers/services in this step.
+
+---
+
+# 1. ARCHITECTURE RULE
+
+Before changing anything:
+
+- Inspect the complete Prisma schema.
+- Understand all existing relationships.
+- Reuse existing transactional tables.
+- Do not duplicate business data.
+- Do not add calculated fields to `projects`, `users`, `tasks`, payments, budgets, etc.
+- Do not create a separate reporting database.
+- Do not introduce a data warehouse.
+- Do not introduce AWS.
+- Do not create materialized dashboard tables unless there is a demonstrated performance requirement.
+- Do not create separate dashboard tables for each department.
+
+The ERP database remains the primary source of truth.
+
+---
+
+# 2. DASHBOARD PRINCIPLE
+
+The following values must remain calculated:
+
+### Projects
+
+```text
+total projects
+active projects
+completed projects
+on-hold projects
+terminated projects
+projects by status
+projects by category
+projects by priority
+projects by PM
+projects by PC
+projects by customer
+```
+
+### Tasks
+
+```text
+total tasks
+completed tasks
+pending tasks
+overdue tasks
+blocked tasks
+tasks by workstream
+tasks by assignee
+```
+
+### Bugs
+
+```text
+open bugs
+critical bugs
+blocker bugs
+bugs by project
+bugs by severity
+bugs by status
+bugs by assignee
+```
+
+### Finance
+
+```text
+total budget
+allocated budget
+budget transactions
+payment requests
+approved payments
+pending payments
+confirmed payments
+overdue payment requests
+```
+
+### HR
+
+```text
+leave requests
+approved leave
+pending leave
+employee performance
+complaints
+appreciations
+```
+
+Do not store these as dashboard counters.
+
+---
+
+# 3. REPORT DEFINITIONS
+
+Create a reusable report configuration model.
+
+## `reports`
+
+Fields:
+
+- `id` UUID PK
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `report_type`
+- `scope`
+- `is_system`
+- `is_active`
+- `created_by_id` FK → users
+- `created_at`
+- `updated_at`
+
+Report types:
+
+```text id="n6xq2v"
+DASHBOARD
+TABLE
+SUMMARY
+ANALYTICS
+EXPORT
+```
+
+Scopes:
+
+```text id="h1yzjk"
+GLOBAL
+SALES
+ACCOUNTS
+PMO
+PROJECT
+UI
+UX
+DEVELOPMENT
+QA
+HR
+EMPLOYEE
+```
+
+A system report can be predefined by the application.
+
+Do not create separate report tables for Sales/PMO/QA/etc.
+
+---
+
+# 4. REPORT CONFIGURATIONS
+
+Create:
+
+## `report_configurations`
+
+Fields:
+
+- `id` UUID PK
+- `report_id` FK
+- `configuration`
+- `version`
+- `created_by_id` FK → users
+- `created_at`
+- `updated_at`
+
+`configuration` may use JSON/JSONB because this is configuration metadata rather than transactional business data.
+
+Examples of configuration:
+
+```text id="3gg0qa"
+columns
+filters
+grouping
+sorting
+date range
+chart type
+```
+
+Do not put actual report results in this JSON.
+
+Do not use JSONB for transactional data.
+
+Unique constraint:
+
+```text id="89ktg3"
+report_id + version
+```
+
+---
+
+# 5. SAVED REPORTS
+
+Users may want their own saved report configurations.
+
+Create:
+
+## `saved_reports`
+
+Fields:
+
+- `id` UUID PK
+- `report_id` FK
+- `user_id` FK
+- `name`
+- `description` nullable
+- `configuration` JSONB
+- `is_default`
+- `created_at`
+- `updated_at`
+
+Unique behavior:
+
+A user should not have duplicate saved report names for the same report if that fits the existing UX.
+
+Add an appropriate composite unique constraint if reasonable:
+
+```text id="ck8q7f"
+user_id + report_id + name
+```
+
+---
+
+# 6. DASHBOARD DEFINITIONS
+
+Do not create:
+
+```text id="o3m1b5"
+sales_dashboard
+accounts_dashboard
+pmo_dashboard
+qa_dashboard
+```
+
+Instead create a generic dashboard model.
+
+## `dashboards`
+
+Fields:
+
+- `id` UUID PK
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `scope`
+- `is_system`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Scopes:
+
+```text id="l4q8x1"
+GLOBAL
+SALES
+ACCOUNTS
+PMO
+PROJECT
+UI
+UX
+DEVELOPMENT
+QA
+HR
+EMPLOYEE
+```
+
+---
+
+# 7. DASHBOARD WIDGETS
+
+Create:
+
+## `dashboard_widgets`
+
+Fields:
+
+- `id` UUID PK
+- `dashboard_id` FK
+- `name`
+- `code`
+- `widget_type`
+- `data_source`
+- `configuration` JSONB
+- `sort_order`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Widget types:
+
+```text id="8u5h2v"
+KPI
+TABLE
+BAR_CHART
+LINE_CHART
+PIE_CHART
+DONUT_CHART
+PROGRESS
+LIST
+TREND
+```
+
+`data_source` should identify the application-level metric/query that supplies the widget.
+
+Example:
+
+```text id="z2s4gp"
+PROJECT_STATUS_SUMMARY
+OPEN_BUGS
+PAYMENT_PENDING
+TASK_COMPLETION
+LEAVE_SUMMARY
+```
+
+Do not store actual KPI values here.
+
+---
+
+# 8. DASHBOARD WIDGET CONFIGURATION
+
+`configuration` may contain presentation/query metadata such as:
+
+```text id="e1tqpj"
+dateRange
+filters
+groupBy
+sortBy
+limit
+chartSettings
+```
+
+Do not store:
+
+```text id="zj4y8v"
+actual_total_projects
+actual_revenue
+actual_bug_count
+actual_completion_percentage
+```
+
+These must always be calculated from source tables.
+
+---
+
+# 9. USER DASHBOARD PREFERENCES
+
+Create:
+
+## `user_dashboard_preferences`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` FK
+- `dashboard_id` FK
+- `layout` JSONB
+- `is_default`
+- `created_at`
+- `updated_at`
+
+Unique:
+
+```text id="3vlb7r"
+user_id + dashboard_id
+```
+
+`layout` contains presentation information such as:
+
+```text id="1e9h9e"
+widget positions
+widget sizes
+hidden widgets
+```
+
+It must not contain business data.
+
+---
+
+# 10. KPI DEFINITIONS
+
+Create a generic KPI definition model.
+
+## `kpi_definitions`
+
+Fields:
+
+- `id` UUID PK
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `category`
+- `scope`
+- `unit`
+- `calculation_key`
+- `target_value` Decimal nullable
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Categories:
+
+```text id="o5qvcn"
+PROJECT
+SALES
+FINANCE
+OPERATIONS
+QUALITY
+HR
+RESOURCE
+CUSTOMER
+```
+
+Scopes:
+
+```text id="f6hm5f"
+GLOBAL
+SALES
+ACCOUNTS
+PMO
+UI
+UX
+DEVELOPMENT
+QA
+HR
+EMPLOYEE
+```
+
+Units:
+
+```text id="nq3g0y"
+COUNT
+PERCENTAGE
+CURRENCY
+HOURS
+DAYS
+RATIO
+OTHER
+```
+
+`calculation_key` identifies the application-level calculation.
+
+Example:
+
+```text id="a6f3q2"
+ACTIVE_PROJECTS
+PROJECT_COMPLETION_RATE
+OPEN_CRITICAL_BUGS
+PAYMENT_COLLECTION_RATE
+TASK_COMPLETION_RATE
+LEAVE_UTILIZATION
+```
+
+Do not store the calculated result.
+
+---
+
+# 11. KPI TARGETS
+
+A KPI may have different targets over time.
+
+Create:
+
+## `kpi_targets`
+
+Fields:
+
+- `id` UUID PK
+- `kpi_definition_id` FK
+- `target_value` Decimal
+- `effective_from`
+- `effective_until` nullable
+- `created_by_id` FK → users
+- `created_at`
+- `updated_at`
+
+This allows:
+
+```text id="c2qj34"
+2026 target
+2027 target
+quarterly target
+department target
+```
+
+without changing the KPI definition.
+
+Do not store current actual KPI values.
+
+---
+
+# 12. KPI ASSIGNMENT
+
+If the business needs department/employee-specific targets, create a generic assignment model rather than adding columns such as:
+
+```text id="g9g9ij"
+sales_target
+employee_target
+department_target
+```
+
+Create:
+
+## `kpi_assignments`
+
+Fields:
+
+- `id` UUID PK
+- `kpi_definition_id` FK
+- `user_id` nullable
+- `department_id` nullable
+- `target_value` Decimal nullable
+- `effective_from`
+- `effective_until` nullable
+- `created_by_id`
+- `created_at`
+- `updated_at`
+
+Rules:
+
+- At least one of `user_id` or `department_id` should be present.
+- Do not allow ambiguous assignments if the existing business rules do not support them.
+- Add indexes for KPI/user/department lookup.
+
+Do not create separate employee KPI tables.
+
+---
+
+# 13. REPORT FILTERS
+
+Do not create a separate table for every possible filter.
+
+Report configuration can contain filters such as:
+
+```text id="k7k8e3"
+project
+customer
+department
+employee
+status
+priority
+date range
+workstream
+category
+```
+
+The actual filtering logic belongs in the application/service layer later.
+
+---
+
+# 14. FINANCIAL REPORTING
+
+Financial reports must calculate from:
+
+```text id="b4s4z1"
+project_budgets
+budget_allocations
+budget_transactions
+payment_requests
+payments
+```
+
+Do not add:
+
+```text id="2cq3i1"
+project.revenue
+project.paid_amount
+project.remaining_payment
+project.used_budget
+project.remaining_budget
+```
+
+as source-of-truth fields.
+
+For example:
+
+### Project budget usage
+
+Calculate from:
+
+```text id="l8r9k1"
+budget_transactions
+```
+
+### Customer payment status
+
+Calculate from:
+
+```text id="j1j4g5"
+payment_requests
+payments
+```
+
+---
+
+# 15. PROJECT PROGRESS
+
+Do not add:
+
+```text id="jv4y8g"
+projects.progress_percentage
+projects.completed_task_count
+projects.total_task_count
+```
+
+Project progress should later be calculated from the appropriate workstream/task/status data.
+
+If different departments need different progress calculations, implement those calculations in application services rather than adding duplicated columns.
+
+---
+
+# 16. EMPLOYEE PERFORMANCE REPORTING
+
+Employee reporting should use:
+
+```text id="1v2xfr"
+tasks
+task_assignments
+task_status_history
+performance_reviews
+performance_goals
+leave_requests
+employee_appreciations
+```
+
+Do not create a permanently stored:
+
+```text id="2r3x0a"
+employee_performance_score
+```
+
+unless a future business requirement explicitly requires a finalized historical score.
+
+Even then, it should be modeled as a formal performance result rather than a dashboard cache.
+
+---
+
+# 17. CUSTOMER REPORTING
+
+Customer reporting should calculate from:
+
+```text id="g2r8fc"
+customers
+customer_contacts
+leads
+proposals
+projects
+payment_requests
+payments
+project_comments
+meetings
+```
+
+Possible metrics:
+
+```text id="8d8z8e"
+lead conversion
+proposal conversion
+active projects
+completed projects
+payment status
+customer activity
+project history
+```
+
+Do not create a duplicate customer analytics table.
+
+---
+
+# 18. REPORT EXPORTS
+
+Do not create a report-results table yet.
+
+Exports can later be generated dynamically as:
+
+```text id="1mtg47"
+CSV
+Excel
+PDF
+```
+
+Do not store exported report contents in PostgreSQL.
+
+If export history is required later, create a separate export-job module.
+
+That is outside Step 19.
+
+---
+
+# 19. PERFORMANCE CONSIDERATIONS
+
+The first implementation should use PostgreSQL queries against normalized tables.
+
+Do not prematurely introduce:
+
+- materialized views
+- Elasticsearch
+- ClickHouse
+- data warehouse
+- Redis dashboard cache
+- separate analytics database
+
+If performance becomes an actual problem later, optimize the specific queries.
+
+Possible future optimizations:
+
+```text id="7xqk4q"
+indexes
+materialized views
+cached metrics
+precomputed aggregates
+reporting database
+```
+
+These are future concerns.
+
+---
+
+# 20. DATABASE INDEXING
+
+Add appropriate indexes for common reporting dimensions.
+
+Inspect existing indexes first.
+
+Potential indexes include:
+
+### Projects
+
+```text id="g6q3sc"
+status
+customer_id
+salesperson_id
+project_manager_id
+project_coordinator_id
+category_id
+priority
+start_date
+planned_end_date
+```
+
+### Tasks
+
+```text id="7f2r4p"
+project_id
+assigned_to_id
+status
+workstream
+priority
+due_date
+sprint_id
+```
+
+### Payments
+
+```text id="q7a4b6"
+project_id
+customer_id
+status
+payment_date
+```
+
+### Payment Requests
+
+```text id="r2h9y6"
+project_id
+customer_id
+status
+due_date
+```
+
+### Bugs
+
+```text id="z6m2q8"
+project_id
+status
+severity
+priority
+assigned_to_id
+created_at
+```
+
+### Leave
+
+```text id="k9f7s4"
+user_id
+status
+start_date
+end_date
+```
+
+### Meetings
+
+```text id="d3x8p1"
+organizer_id
+project_id
+customer_id
+start_at
+status
+```
+
+Only add indexes that are useful and do not blindly duplicate existing indexes.
+
+---
+
+# 21. REPORT ACCESS CONTROL
+
+Reports must respect the existing RBAC system.
+
+Reuse:
+
+```text id="4p3r7q"
+roles
+permissions
+user_roles
+role_permissions
+```
+
+Possible permissions:
+
+```text id="7f4x8c"
+report.read
+report.create
+report.update
+report.delete
+
+dashboard.read
+dashboard.manage
+
+kpi.read
+kpi.manage
+```
+
+Do not automatically grant these permissions to every role.
+
+Application-level authorization will determine which scope a user can access.
+
+For example:
+
+- Employee → own permitted dashboard
+- Team lead → team-related dashboard
+- PMO → project/operations dashboard
+- Accounts → financial dashboard
+- HR → HR dashboard
+- Management → global dashboard
+
+Do not hard-code these rules inside the database.
+
+---
+
+# 22. SYSTEM REPORTS
+
+Do not create hundreds of report rows during migration.
+
+If the project already has seed infrastructure, system reports/KPIs can be seeded separately.
+
+For this migration, focus on the schema.
+
+If seed data is already part of the existing architecture, only add the minimum system definitions required by the current implementation.
+
+---
+
+# 23. NO NOTIFICATION DUPLICATION
+
+The previous step created notifications.
+
+Do not create:
+
+```text id="9x3q0d"
+dashboard_notifications
+report_notifications
+kpi_notifications
+```
+
+If a future KPI alert is needed, it should use the existing notification system.
+
+---
+
+# 24. NO AUDIT DUPLICATION
+
+Use the existing history/audit architecture where applicable.
+
+Do not create:
+
+```text id="p0m4p1"
+dashboard_history
+report_history
+kpi_history
+```
+
+unless there is a specific business requirement.
+
+---
+
+# 25. JSONB RULE
+
+JSONB is acceptable only for:
+
+```text id="e8z1m7"
+report configuration
+saved report configuration
+dashboard widget configuration
+dashboard layout
+```
+
+Do NOT use JSONB for:
+
+```text id="k3c4x8"
+projects
+tasks
+payments
+employees
+customers
+bugs
+leave requests
+performance reviews
+```
+
+Those remain relational.
+
+---
+
+# 26. MIGRATION
+
+Create one clean Prisma migration.
+
+Suggested name:
+
+```bash id="j7q2wb"
+npx prisma migrate dev --name add_reporting_dashboard_kpi
+```
+
+Do NOT:
+
+```bash id="6j2qpc"
+npx prisma migrate reset
+```
+
+Do not:
+
+- delete previous migrations
+- drop existing tables
+- recreate the database
+- remove existing data
+- rewrite unrelated models
+
+Only implement Step 19.
+
+---
+
+# 27. VALIDATION
+
+Run:
+
+```bash id="q8j3nt"
+npx prisma validate
+```
+
+Then:
+
+```bash id="p5v8qa"
+npx prisma generate
+```
+
+Then execute the existing project checks from `package.json`:
+
+- TypeScript
+- lint
+- tests
+- build
+
+Fix only issues introduced by Step 19.
+
+---
+
+# 28. DOCUMENTATION
+
+Update existing architecture/database documentation.
+
+Document:
+
+### Source-of-truth principle
+
+```text
+Transactional tables
+        ↓
+Application queries/services
+        ↓
+KPI calculations
+        ↓
+Reports / dashboards
+```
+
+### Important rule
+
+```text
+Dashboard values are derived.
+Transactional records are authoritative.
+```
+
+Document the distinction between:
+
+- KPI definition
+- KPI target
+- KPI assignment
+- KPI actual value
+
+The actual value must be calculated rather than persisted in this step.
+
+---
+
+# 29. FINAL VALIDATION CHECKLIST
+
+Before finishing:
+
+- [ ] Existing schema inspected.
+- [ ] No duplicate transactional tables.
+- [ ] Reports implemented.
+- [ ] Report configurations implemented.
+- [ ] Saved reports implemented.
+- [ ] Dashboards implemented.
+- [ ] Dashboard widgets implemented.
+- [ ] User dashboard preferences implemented.
+- [ ] KPI definitions implemented.
+- [ ] KPI targets implemented.
+- [ ] KPI assignments implemented.
+- [ ] Existing RBAC reused.
+- [ ] JSONB used only for configuration.
+- [ ] No dashboard values stored.
+- [ ] No KPI actual values stored.
+- [ ] No project progress columns added.
+- [ ] No financial summary columns added.
+- [ ] No duplicate calendar system.
+- [ ] No duplicate notification system.
+- [ ] Proper indexes added.
+- [ ] Proper foreign keys added.
+- [ ] Proper unique constraints added.
+- [ ] No AWS services.
+- [ ] Migration created.
+- [ ] `prisma validate` passes.
+- [ ] `prisma generate` passes.
+- [ ] Existing tests pass.
+- [ ] Existing build passes.
+- [ ] Documentation updated.
+
+## STOP CONDITION
+
+After completing Step 19 and validation, **STOP**.
+
+Do not implement Step 20 automatically.
+
+Wait for the next instruction.

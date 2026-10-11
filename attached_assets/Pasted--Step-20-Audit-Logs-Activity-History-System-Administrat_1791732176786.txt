@@ -1,0 +1,846 @@
+# Step 20 — Audit Logs / Activity History / System Administration Controls
+
+You are continuing development of the existing **InterSmart Internal ERP**.
+
+This is **Step 20 only**.
+
+## Objective
+
+Implement the database layer for:
+
+1. System-wide audit logs
+2. User activity history
+3. Authentication/security events
+4. Data change tracking
+5. Login/session history
+6. Security event tracking
+7. Administrative activity tracking
+8. Entity activity timeline
+9. API/request activity metadata where appropriate
+
+Do NOT implement frontend pages, APIs, controllers, services, middleware, authentication logic, or audit interceptors in this step.
+
+---
+
+# 1. IMPORTANT ARCHITECTURE RULE
+
+Before making changes:
+
+- Inspect the complete Prisma schema.
+- Reuse the existing `users`, `roles`, `permissions`, `projects`, `tasks`, `customers`, `payments`, `bugs`, HR models, etc.
+- Do not create separate audit tables for every module.
+- Do not duplicate existing status-history tables.
+- Do not replace existing business history tables.
+- Do not store sensitive credentials.
+- Do not store passwords.
+- Do not store access tokens.
+- Do not store refresh tokens.
+- Do not store API keys.
+- Do not store private keys.
+- Do not store complete request/response bodies blindly.
+
+The audit system is an **additional cross-module audit layer**, not a replacement for domain-specific history tables.
+
+---
+
+# 2. AUDIT LOG
+
+Create:
+
+## `audit_logs`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` nullable FK → users
+- `action`
+- `entity_type`
+- `entity_id` nullable
+- `description` nullable
+- `ip_address` nullable
+- `user_agent` nullable
+- `request_id` nullable
+- `metadata` JSONB nullable
+- `created_at`
+
+Actions should include common operations such as:
+
+```text id="h7x3q4"
+CREATE
+UPDATE
+DELETE
+VIEW
+EXPORT
+LOGIN
+LOGOUT
+LOGIN_FAILED
+PASSWORD_CHANGED
+PASSWORD_RESET
+PERMISSION_CHANGED
+ROLE_CHANGED
+STATUS_CHANGED
+APPROVAL
+REJECTION
+DOWNLOAD
+UPLOAD
+OTHER
+```
+
+Do not create a separate table for each action.
+
+---
+
+# 3. ENTITY REFERENCE
+
+Use:
+
+```text id="1m8j6n"
+entity_type
+entity_id
+```
+
+to identify the affected business record.
+
+Examples:
+
+```text id="3r9p5v"
+entity_type = PROJECT
+entity_id = project UUID
+```
+
+or:
+
+```text id="8q2x6k"
+entity_type = PAYMENT
+entity_id = payment UUID
+```
+
+This allows a common audit system to support:
+
+- Projects
+- Customers
+- Leads
+- Proposals
+- Payments
+- Tasks
+- Bugs
+- HR records
+- Meetings
+- Infrastructure
+- Reports
+
+Do not create dozens of nullable foreign keys.
+
+---
+
+# 4. AUDIT METADATA
+
+`metadata` may contain safe contextual information such as:
+
+```text id="0y3s6m"
+changed_fields
+old_status
+new_status
+source
+module
+reason
+browser
+request context
+```
+
+However:
+
+## NEVER store:
+
+```text id="v8g2s1"
+password
+password_hash
+access_token
+refresh_token
+JWT
+API key
+AWS secret
+SSH private key
+database password
+SMTP password
+MinIO secret
+TLS private key
+Git credentials
+```
+
+If sensitive data appears in a request, the future audit middleware must sanitize it before writing metadata.
+
+---
+
+# 5. DATA CHANGE DETAILS
+
+For important updates, metadata may contain:
+
+```json
+{
+  "changedFields": [
+    "status",
+    "priority"
+  ]
+}
+```
+
+Do not automatically store an entire before/after object for every database update.
+
+This can create:
+
+- huge audit records
+- privacy risks
+- sensitive data leakage
+- poor database performance
+
+The application layer should selectively record meaningful changes.
+
+---
+
+# 6. USER ACTIVITY
+
+Create:
+
+## `user_activity_logs`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` FK → users
+- `activity_type`
+- `entity_type` nullable
+- `entity_id` nullable
+- `description` nullable
+- `ip_address` nullable
+- `user_agent` nullable
+- `created_at`
+
+Activity types:
+
+```text id="r3g6x8"
+LOGIN
+LOGOUT
+VIEW
+CREATE
+UPDATE
+DELETE
+EXPORT
+DOWNLOAD
+UPLOAD
+SEARCH
+OTHER
+```
+
+Use this for user-oriented activity history.
+
+Important distinction:
+
+```text id="8j5m1r"
+audit_logs
+    = authoritative security/data-change audit trail
+
+user_activity_logs
+    = user activity/history view
+```
+
+Do not assume every user activity must become a permanent detailed audit record.
+
+---
+
+# 7. AUTHENTICATION EVENTS
+
+Create:
+
+## `authentication_events`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` nullable FK → users
+- `event_type`
+- `success`
+- `ip_address` nullable
+- `user_agent` nullable
+- `failure_reason` nullable
+- `created_at`
+
+Event types:
+
+```text id="6w2k4a"
+LOGIN
+LOGOUT
+LOGIN_FAILED
+PASSWORD_CHANGED
+PASSWORD_RESET_REQUESTED
+PASSWORD_RESET_COMPLETED
+ACCOUNT_LOCKED
+ACCOUNT_UNLOCKED
+SESSION_EXPIRED
+MFA_SUCCESS
+MFA_FAILED
+OTHER
+```
+
+Do not store:
+
+- password
+- password hash
+- OTP
+- access token
+- refresh token
+- session token
+
+---
+
+# 8. LOGIN/SESSION HISTORY
+
+Create:
+
+## `user_sessions`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` FK → users
+- `session_identifier` UNIQUE
+- `ip_address` nullable
+- `user_agent` nullable
+- `created_at`
+- `last_activity_at`
+- `expires_at`
+- `revoked_at` nullable
+- `revoked_by_id` nullable FK → users
+- `revoke_reason` nullable
+
+Important:
+
+`session_identifier` must NOT contain the actual authentication token.
+
+Store only a safe identifier/reference.
+
+If the future authentication implementation uses refresh tokens, do not store raw tokens here.
+
+---
+
+# 9. SECURITY EVENTS
+
+Create:
+
+## `security_events`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` nullable FK → users
+- `event_type`
+- `severity`
+- `description`
+- `ip_address` nullable
+- `user_agent` nullable
+- `entity_type` nullable
+- `entity_id` nullable
+- `metadata` JSONB nullable
+- `resolved_at` nullable
+- `resolved_by_id` nullable FK → users
+- `created_at`
+
+Event types:
+
+```text id="8k7z2m"
+SUSPICIOUS_LOGIN
+MULTIPLE_LOGIN_FAILURES
+UNAUTHORIZED_ACCESS
+PERMISSION_DENIED
+ACCOUNT_LOCKED
+SESSION_REVOKED
+UNUSUAL_ACTIVITY
+SECURITY_CONFIGURATION_CHANGED
+OTHER
+```
+
+Severity:
+
+```text id="f5k2x7"
+LOW
+MEDIUM
+HIGH
+CRITICAL
+```
+
+This table is for security-related events requiring possible investigation.
+
+---
+
+# 10. ADMINISTRATIVE ACTIVITY
+
+Do NOT create:
+
+```text id="9p2m6k"
+admin_logs
+```
+
+Use `audit_logs`.
+
+Administrative operations such as:
+
+- user creation
+- role assignment
+- permission change
+- user deactivation
+- configuration change
+
+should create appropriate `audit_logs` entries.
+
+If a separate configuration history is needed later, it can be added as a dedicated module.
+
+---
+
+# 11. ENTITY ACTIVITY TIMELINE
+
+The application will eventually need an activity timeline such as:
+
+```text id="p4k9v2"
+Project created
+Project assigned
+Status changed
+Task created
+Payment approved
+Bug reported
+Meeting completed
+Comment added
+```
+
+Do NOT create:
+
+```text id="m8r1q5"
+project_activity
+customer_activity
+payment_activity
+task_activity
+bug_activity
+```
+
+Instead, the application can query `audit_logs` by:
+
+```text id="v5z3x8"
+entity_type
+entity_id
+created_at
+```
+
+Domain-specific history tables should still be used when they already exist.
+
+Examples:
+
+```text id="x7c2q9"
+project_status_history
+task_status_history
+bug_status_history
+payment_status_history
+leave_request_status_history
+meeting_status_history
+```
+
+These remain authoritative for their specific workflows.
+
+---
+
+# 12. DOMAIN HISTORY VS AUDIT
+
+Follow this rule:
+
+### Domain history
+
+Stores business lifecycle information.
+
+Example:
+
+```text id="4v7n2p"
+Task moved from IN_PROGRESS → COMPLETED
+```
+
+### Audit log
+
+Stores who performed the operation and relevant security/context information.
+
+Example:
+
+```text id="6k3w9s"
+User 123 changed task status
+IP: ...
+Request ID: ...
+```
+
+Do not remove existing history tables.
+
+Do not duplicate every history record unnecessarily.
+
+---
+
+# 13. REQUEST ID
+
+`audit_logs.request_id` should allow multiple actions from one HTTP/API request to be correlated later.
+
+Example:
+
+```text id="s6n8p2"
+request_id = 7d1c...
+```
+
+The actual request ID generation will be implemented later in the backend.
+
+Do not implement request middleware now.
+
+---
+
+# 14. IP ADDRESS
+
+Use a database type compatible with PostgreSQL IP address storage if practical.
+
+Prefer PostgreSQL `inet` if the project's Prisma version supports the required mapping cleanly.
+
+Otherwise use a sufficiently sized string field.
+
+Do not store geolocation coordinates.
+
+Do not attempt to infer the employee's physical location.
+
+---
+
+# 15. USER AGENT
+
+`user_agent` may contain the browser/client user-agent string.
+
+Do not parse and permanently store unnecessary browser metadata such as:
+
+- exact device fingerprint
+- hardware identifiers
+- tracking IDs
+
+unless a future security requirement explicitly requires it.
+
+---
+
+# 16. RETENTION SUPPORT
+
+Audit data can grow significantly.
+
+The schema should support future retention policies.
+
+Use:
+
+```text id="h9w3s2"
+created_at
+```
+
+on all audit/security/history tables.
+
+Do not implement automatic deletion in this step.
+
+Do not create cron jobs.
+
+Future retention policies can archive/delete old audit records according to company policy.
+
+---
+
+# 17. INDEXING
+
+Add appropriate indexes.
+
+### Audit logs
+
+```text id="r8y5m3"
+user_id
+entity_type
+entity_id
+action
+created_at
+request_id
+```
+
+A composite index such as:
+
+```text id="q6x4n1"
+entity_type + entity_id + created_at
+```
+
+is especially useful for entity timelines.
+
+### User activity
+
+```text id="t5z7p2"
+user_id
+created_at
+entity_type
+entity_id
+```
+
+### Authentication events
+
+```text id="u8k3m5"
+user_id
+event_type
+created_at
+success
+```
+
+### Sessions
+
+```text id="c9q2x7"
+user_id
+expires_at
+revoked_at
+last_activity_at
+```
+
+### Security events
+
+```text id="n4v6s8"
+user_id
+event_type
+severity
+created_at
+resolved_at
+```
+
+Do not blindly add duplicate indexes.
+
+Inspect existing indexes first.
+
+---
+
+# 18. SECURITY / PRIVACY
+
+Audit logs themselves may contain sensitive business information.
+
+Therefore:
+
+- Access should be restricted.
+- Normal employees should not automatically see all audit logs.
+- HR records require special access.
+- Financial audit records require appropriate permissions.
+- Security events should be restricted to authorized administrators.
+- User activity history should be limited according to role.
+
+Do not implement the authorization layer in this migration.
+
+Prepare the schema for it.
+
+---
+
+# 19. PERMISSIONS
+
+Reuse:
+
+```text id="x2c8m5"
+roles
+permissions
+user_roles
+role_permissions
+```
+
+Add permissions if they fit the existing RBAC architecture:
+
+```text id="p8k3v6"
+audit.read
+audit.manage
+
+security_events.read
+security_events.manage
+
+user_activity.read
+authentication_events.read
+session.manage
+```
+
+Do not automatically grant these to all roles.
+
+---
+
+# 20. SYSTEM CONFIGURATION
+
+Do not create a generic:
+
+```text id="r7c4m2"
+system_settings
+```
+
+table in this step unless one already exists and needs to be extended.
+
+Configuration such as:
+
+- password policy
+- session timeout
+- notification defaults
+- audit retention
+
+can be modeled separately after the actual application requirements are known.
+
+Avoid creating a generic key/value table prematurely.
+
+---
+
+# 21. PERFORMANCE
+
+Audit tables may eventually become large.
+
+For this step:
+
+- Use UUID primary keys.
+- Add useful indexes.
+- Use timestamps.
+- Avoid excessive JSONB.
+- Do not store large request/response payloads.
+- Do not store file contents.
+- Do not store duplicated business records.
+
+Future optimization may include:
+
+```text id="z4h7p2"
+partitioning
+archiving
+retention jobs
+cold storage
+```
+
+Do not implement these now.
+
+---
+
+# 22. MIGRATION
+
+Create one clean Prisma migration.
+
+Suggested name:
+
+```bash id="v2x8q5"
+npx prisma migrate dev --name add_audit_security_activity
+```
+
+Do NOT:
+
+```bash id="c8q5r1"
+npx prisma migrate reset
+```
+
+Do not:
+
+- delete previous migrations
+- drop existing tables
+- recreate the database
+- remove existing business data
+- rewrite unrelated schema
+
+Only implement Step 20.
+
+---
+
+# 23. VALIDATION
+
+Run:
+
+```bash id="q5m8v2"
+npx prisma validate
+```
+
+Then:
+
+```bash id="k3r7x9"
+npx prisma generate
+```
+
+Then run the existing project checks from `package.json`:
+
+- TypeScript
+- lint
+- tests
+- build
+
+Fix only issues introduced by Step 20.
+
+---
+
+# 24. DOCUMENTATION
+
+Update the existing architecture/database documentation.
+
+Document:
+
+### Audit
+
+```text
+audit_logs
+```
+
+### User activity
+
+```text
+user_activity_logs
+```
+
+### Authentication
+
+```text
+authentication_events
+user_sessions
+```
+
+### Security
+
+```text
+security_events
+```
+
+Document the distinction:
+
+```text
+Domain history
+      +
+Audit logs
+      +
+Security events
+```
+
+These serve different purposes and should not be merged into one overloaded model.
+
+---
+
+# 25. FINAL VALIDATION CHECKLIST
+
+Before finishing:
+
+- [ ] Existing schema inspected.
+- [ ] Existing domain history preserved.
+- [ ] Generic audit log implemented.
+- [ ] User activity implemented.
+- [ ] Authentication events implemented.
+- [ ] User sessions implemented.
+- [ ] Security events implemented.
+- [ ] Entity timeline can be derived from audit logs.
+- [ ] Request ID supported.
+- [ ] Safe metadata supported.
+- [ ] Sensitive credentials are not stored.
+- [ ] Passwords are not stored.
+- [ ] Tokens are not stored.
+- [ ] Private keys are not stored.
+- [ ] No duplicate history tables created.
+- [ ] No duplicate admin log created.
+- [ ] Proper indexes added.
+- [ ] Proper foreign keys added.
+- [ ] Appropriate RBAC permissions added.
+- [ ] No AWS services.
+- [ ] Migration created.
+- [ ] `prisma validate` passes.
+- [ ] `prisma generate` passes.
+- [ ] Existing tests pass.
+- [ ] Existing build passes.
+- [ ] Documentation updated.
+
+## STOP CONDITION
+
+After completing Step 20 and validation, **STOP**.
+
+Do not automatically implement Step 21.
+
+Wait for the next instruction.

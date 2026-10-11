@@ -175,6 +175,13 @@ model User {
   createdKpiTargets           KpiTarget[]
   assignedKpis                KpiAssignment[]               @relation("KpiAssignmentUser")
   createdKpiAssignments       KpiAssignment[]               @relation("KpiAssignmentCreator")
+  auditLogs                   AuditLog[]
+  activityLogs                UserActivityLog[]
+  authenticationEvents        AuthenticationEvent[]
+  sessions                    UserSession[]                 @relation("SessionUser")
+  revokedSessions             UserSession[]                 @relation("SessionRevoker")
+  securityEvents              SecurityEvent[]               @relation("SecurityEventUser")
+  resolvedSecurityEvents      SecurityEvent[]               @relation("SecurityEventResolver")
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -3863,4 +3870,191 @@ model KpiAssignment {
   @@index([effectiveUntil])
   @@index([createdById])
   @@map("kpi_assignments")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+  EXPORT
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+  PERMISSION_CHANGED
+  ROLE_CHANGED
+  STATUS_CHANGED
+  APPROVAL
+  REJECTION
+  DOWNLOAD
+  UPLOAD
+  OTHER
+}
+
+enum UserActivityType {
+  LOGIN
+  LOGOUT
+  VIEW
+  CREATE
+  UPDATE
+  DELETE
+  EXPORT
+  DOWNLOAD
+  UPLOAD
+  SEARCH
+  OTHER
+}
+
+enum AuthenticationEventType {
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  PASSWORD_CHANGED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  ACCOUNT_LOCKED
+  ACCOUNT_UNLOCKED
+  SESSION_EXPIRED
+  MFA_SUCCESS
+  MFA_FAILED
+  OTHER
+}
+
+enum SecurityEventType {
+  SUSPICIOUS_LOGIN
+  MULTIPLE_LOGIN_FAILURES
+  UNAUTHORIZED_ACCESS
+  PERMISSION_DENIED
+  ACCOUNT_LOCKED
+  SESSION_REVOKED
+  UNUSUAL_ACTIVITY
+  SECURITY_CONFIGURATION_CHANGED
+  OTHER
+}
+
+enum SecurityEventSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// Cross-module contextual evidence, not a replacement for domain histories.
+// Entity references intentionally have no polymorphic business-record FK.
+// Future writers must sanitize ALL free text and nested JSON before insertion.
+model AuditLog {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String?     @map("user_id") @db.Uuid
+  action      AuditAction
+  entityType  String      @map("entity_type") @db.VarChar(64)
+  entityId    String?     @map("entity_id") @db.Uuid
+  description String?     @db.Text
+  ipAddress   String?     @map("ip_address") @db.Inet
+  userAgent   String?     @map("user_agent") @db.VarChar(2048)
+  requestId   String?     @map("request_id") @db.VarChar(128)
+  metadata    Json?       @db.JsonB
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  user        User?       @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([entityId])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@index([requestId])
+  @@map("audit_logs")
+}
+
+// A user-oriented history; its recording and retention policy is distinct.
+model UserActivityLog {
+  id           String           @id @default(uuid()) @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  activityType UserActivityType @map("activity_type")
+  entityType   String?          @map("entity_type") @db.VarChar(64)
+  entityId     String?          @map("entity_id") @db.Uuid
+  description  String?          @db.Text
+  ipAddress    String?          @map("ip_address") @db.Inet
+  userAgent    String?          @map("user_agent") @db.VarChar(2048)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([entityId])
+  @@map("user_activity_logs")
+}
+
+// Unidentified failed login attempts may have no user. No credentials or OTPs.
+model AuthenticationEvent {
+  id            String                  @id @default(uuid()) @db.Uuid
+  userId        String?                 @map("user_id") @db.Uuid
+  eventType     AuthenticationEventType @map("event_type")
+  success       Boolean
+  ipAddress     String?                 @map("ip_address") @db.Inet
+  userAgent     String?                 @map("user_agent") @db.VarChar(2048)
+  failureReason String?                 @map("failure_reason") @db.Text
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  user          User?                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([createdAt])
+  @@index([success, createdAt])
+  @@map("authentication_events")
+}
+
+// History/reference only: this UUID is independently generated, NOT a bearer
+// credential, cookie, access/refresh token, or an authenticating session store.
+model UserSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  sessionIdentifier String    @unique @default(uuid()) @map("session_identifier") @db.Uuid
+  ipAddress         String?   @map("ip_address") @db.Inet
+  userAgent         String?   @map("user_agent") @db.VarChar(2048)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastActivityAt    DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedById       String?   @map("revoked_by_id") @db.Uuid
+  revokeReason      String?   @map("revoke_reason") @db.Text
+  user              User      @relation("SessionUser", fields: [userId], references: [id], onDelete: Restrict)
+  revokedBy         User?     @relation("SessionRevoker", fields: [revokedById], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@index([lastActivityAt])
+  @@index([revokedById])
+  @@index([createdAt])
+  @@map("user_sessions")
+}
+
+// The involved employee/account and the investigation resolver are separate.
+model SecurityEvent {
+  id           String                @id @default(uuid()) @db.Uuid
+  userId       String?               @map("user_id") @db.Uuid
+  eventType    SecurityEventType     @map("event_type")
+  severity     SecurityEventSeverity
+  description  String                @db.Text
+  ipAddress    String?               @map("ip_address") @db.Inet
+  userAgent    String?               @map("user_agent") @db.VarChar(2048)
+  entityType   String?               @map("entity_type") @db.VarChar(64)
+  entityId     String?               @map("entity_id") @db.Uuid
+  metadata     Json?                 @db.JsonB
+  resolvedAt   DateTime?             @map("resolved_at") @db.Timestamptz(6)
+  resolvedById String?               @map("resolved_by_id") @db.Uuid
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  user         User?                 @relation("SecurityEventUser", fields: [userId], references: [id], onDelete: Restrict)
+  resolvedBy   User?                 @relation("SecurityEventResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([severity, createdAt])
+  @@index([createdAt])
+  @@index([resolvedAt, severity, createdAt])
+  @@index([resolvedById])
+  @@map("security_events")
 }

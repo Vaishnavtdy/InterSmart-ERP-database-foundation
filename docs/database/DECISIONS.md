@@ -1073,3 +1073,49 @@
 - Existing seed unchanged; no unneeded system records or fake authors. CSV/
   Excel/PDF generation, KPI alerts (reuse Notifications), report execution,
   dashboards, APIs, workers, additional audits and Step 20 remain out of scope.
+
+## Step 20 — Audit/activity/authentication/session/security foundation
+
+- Five shared models and five purpose-specific enums. Audit authoritative for
+  safe security/data-change context, domain histories authoritative for workflow.
+  Preserve every existing history, integrity trigger and business record.
+  User activity has distinct recording/retention semantics; security signals
+  have investigation/resolution state. No per-module/admin/history duplicates.
+- Seven RESTRICT user FKs, including separately named owner/revoker and involved
+  account/resolver relations. Optional actors permit system/unidentified events.
+  Preserve attribution through employee soft deletion, not automatic cascades.
+- Generic VARCHAR(64) entity type + UUID ID rather than nullable-FK explosion.
+  An ID requires a type, type-only context allowed; unknown/deleted references
+  can remain evidence. No entity registry, enum or source-access inference.
+  Timeline composite indexes provide entity ordering; child association joins
+  and source authorization remain future application work.
+- Native INET maps to Prisma String; all five IP fields support IPv4/IPv6 hosts,
+  not network masks. No geolocation/fingerprint/tracking metadata. Future
+  trusted-proxy policy required; raw forwarded headers are not reliable identity.
+- session_identifier is an independently generated unique UUID reference,
+  not an authentication token/cookie or provider session credential. UUID syntax
+  alone cannot prove non-secret origin. No authenticating session store/rotation/
+  refresh-token/OTP fields, auth logic or middleware introduced.
+- Authentication success required explicitly, no optimistic default. Named
+  LOGIN_FAILED/MFA_FAILED must be false, MFA_SUCCESS true. Session temporal and
+  revocation-context checks and security resolution time/actor checks prevent
+  contradictory records while allowing timestamp-only system actions.
+  Expiry and revocation remain independent; no timeout/lockout/MFA logic.
+- Two optional object JSONB columns only. Root checks are NOT redaction, limits
+  or a credential filter. Future writers must allowlist/redact nested context
+  AND free text before insertion; never blindly serialize bodies, database
+  records, old/new snapshots, headers/cookies, secrets or file contents.
+- Nonunique nullable request ID correlates multiple actions. No generator or
+  interceptors. Required action/type/severity have no defaults masking intent.
+- Requested created_at only; explicit session activity/revocation and security
+  resolution timestamps represent mutation. No event updated_at invented.
+  Future append-only writers/least privilege must protect authoritative evidence;
+  no blanket retention-blocking DELETE/UPDATE triggers invented for these tables.
+  Company retention/privacy/tamper-resistance policy must be defined separately.
+- Created-at indexes support future retention; composites cover leading fields
+  without redundant single-column indexes. No JSON indexing, partitioning,
+  automatic deletion, archiving/cold storage or cron jobs yet.
+- Canonical RBAC absent; seven requested audit/security/activity/auth/session
+  permission names documented, not seeded/granted or used to invent new roles.
+  Sensitive copied audit content needs its own authorization and source checks.
+  No system_settings, APIs/UI/services/authentication/interceptors, AWS or Step 21.

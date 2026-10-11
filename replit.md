@@ -108,6 +108,11 @@ outside this ERP; configuration flags do not configure those services.
 
 ## Gotchas
 
+- Audit/session/security tables are database foundations, not automatic logging
+  or authentication. Never copy credentials, request bodies or full snapshots
+  into metadata/text. Session references are independent UUIDs, never tokens.
+  Generic entity references do not authorize access; preserve domain histories.
+
 - Reporting metadata and KPI targets are not KPI actuals. Derive authorized
   aggregates from transactional sources; never persist dashboard counts/results
   in JSON configuration, add progress/financial counters or treat scope as RBAC.

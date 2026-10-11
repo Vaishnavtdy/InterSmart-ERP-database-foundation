@@ -8,3 +8,4 @@
 - [HR write contracts](hr-write-contracts.md) — serialize leave decisions/history/balances; actual HR actors are not inferred from managers or task assignees.
 - [Meeting/notification writes](meeting-notification-write-contracts.md) — coordinate meeting history; reauthorize copied notification content; delivery is not read acknowledgement.
 - [Reporting contracts](reporting-contracts.md) — metadata/targets are not actuals; authorize before aggregation and define target/default scope policies explicitly.
+- [Audit/security writes](audit-security-write-contracts.md) — coordinate successful changes and evidence; preserve failed-attempt events; history is not auth enforcement.

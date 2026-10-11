@@ -2,6 +2,76 @@
 
 ```mermaid
 erDiagram
+  USERS o|--o{ AUDIT_LOGS : "optional actual actor"
+  USERS ||--o{ USER_ACTIVITY_LOGS : "activity owner"
+  USERS o|--o{ AUTHENTICATION_EVENTS : "known or unidentified account"
+  USERS ||--o{ USER_SESSIONS : "session owner"
+  USERS o|--o{ USER_SESSIONS : "actual revoker"
+  USERS o|--o{ SECURITY_EVENTS : "involved account"
+  USERS o|--o{ SECURITY_EVENTS : "actual resolver"
+  AUDIT_LOGS {
+    uuid id PK
+    uuid user_id FK "nullable"
+    AuditAction action
+    string entity_type "nonblank, not a business FK"
+    uuid entity_id "nullable generic reference"
+    text description "nullable sanitized text"
+    inet ip_address "nullable IPv4 or IPv6 host"
+    string user_agent "nullable bounded client context"
+    string request_id "nullable nonunique correlation"
+    jsonb metadata "nullable safe object context"
+    timestamptz created_at
+  }
+  USER_ACTIVITY_LOGS {
+    uuid id PK
+    uuid user_id FK
+    UserActivityType activity_type
+    string entity_type "nullable"
+    uuid entity_id "nullable, requires type"
+    text description "nullable"
+    inet ip_address "nullable"
+    string user_agent "nullable"
+    timestamptz created_at
+  }
+  AUTHENTICATION_EVENTS {
+    uuid id PK
+    uuid user_id FK "nullable, unknown attempts allowed"
+    AuthenticationEventType event_type
+    boolean success "required explicit outcome"
+    inet ip_address "nullable"
+    string user_agent "nullable"
+    text failure_reason "nullable sanitized reason"
+    timestamptz created_at
+  }
+  USER_SESSIONS {
+    uuid id PK
+    uuid user_id FK
+    uuid session_identifier UK "independent reference, NOT token"
+    inet ip_address "nullable"
+    string user_agent "nullable"
+    timestamptz created_at
+    timestamptz last_activity_at
+    timestamptz expires_at
+    timestamptz revoked_at "nullable"
+    uuid revoked_by_id FK "nullable actual actor"
+    text revoke_reason "nullable"
+  }
+  SECURITY_EVENTS {
+    uuid id PK
+    uuid user_id FK "nullable involved account"
+    SecurityEventType event_type
+    SecurityEventSeverity severity
+    text description "required nonblank"
+    inet ip_address "nullable"
+    string user_agent "nullable"
+    string entity_type "nullable"
+    uuid entity_id "nullable, requires type"
+    jsonb metadata "nullable safe object context"
+    timestamptz resolved_at "nullable"
+    uuid resolved_by_id FK "nullable actual resolver"
+    timestamptz created_at
+  }
+
   USERS ||--o{ REPORTS : "real definition author"
   REPORTS ||--o{ REPORT_CONFIGURATIONS : "versioned metadata only"
   USERS ||--o{ REPORT_CONFIGURATIONS : "configuration author"
@@ -1816,3 +1886,15 @@ Existing transactional indexes cover requested dimensions except Project.startDa
 now indexed. No query executor, RBAC implementation/grants, seed defaults,
 materialized/cache/result/export tables, duplicate notifications/audits/calendar,
 warehouse, AWS, UI/API or Step 20.
+
+Step 20 adds only these five cross-module tables, five enums and seven RESTRICT
+user FKs. Domain histories remain unchanged/authoritative for workflow; audits
+provide safe contextual evidence, activity serves the employee view, security
+events support investigations. No FK edge from entity_type/entity_id to every
+business table: references intentionally polymorphic, not access grants.
+Session reference is independently generated, never an authentication secret.
+Request IDs nonunique for multi-action correlation. Nullable metadata root
+checks do not sanitize secrets or implement authorization. Created-at indexes
+support future retention; session activity/revocation and security resolution
+checks enforce basic chronology/context. No automatic authentication, logging,
+retention/deletion, generic settings, RBAC, admin/per-module tables or Step 21.

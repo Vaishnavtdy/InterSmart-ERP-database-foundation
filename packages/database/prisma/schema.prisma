@@ -157,6 +157,16 @@ model User {
   receivedAppreciations       EmployeeAppreciation[]        @relation("AppreciationEmployee")
   givenAppreciations          EmployeeAppreciation[]        @relation("AppreciationAuthor")
   employeeDocuments           File[]                        @relation("FileEmployee")
+  organizedMeetings           Meeting[]                     @relation("MeetingOrganizer")
+  cancelledMeetings           Meeting[]                     @relation("MeetingCanceller")
+  meetingParticipations       MeetingParticipant[]
+  createdMeetingAgendaItems   MeetingAgendaItem[]
+  createdMeetingMinutes       MeetingMinutes[]              @relation("MinutesCreator")
+  approvedMeetingMinutes      MeetingMinutes[]              @relation("MinutesApprover")
+  meetingStatusChanges        MeetingStatusHistory[]
+  uploadedMeetingAttachments  MeetingAttachment[]
+  notifications               Notification[]
+  notificationPreferences     NotificationPreference[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -214,6 +224,7 @@ model Customer {
   projects        Project[]
   paymentRequests PaymentRequest[]
   payments        Payment[]
+  meetings        Meeting[]
 
   @@index([companyName])
   @@index([status, deletedAt])
@@ -222,18 +233,19 @@ model Customer {
 }
 
 model CustomerContact {
-  id          String                @id @default(uuid()) @db.Uuid
-  customerId  String                @map("customer_id") @db.Uuid
-  firstName   String                @map("first_name") @db.VarChar(100)
-  lastName    String?               @map("last_name") @db.VarChar(100)
-  email       String?               @db.VarChar(320)
-  phone       String?               @db.VarChar(32)
-  designation String?               @db.VarChar(120)
-  isPrimary   Boolean               @default(false) @map("is_primary")
-  status      CustomerContactStatus @default(ACTIVE)
-  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  customer    Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  id                    String                   @id @default(uuid()) @db.Uuid
+  customerId            String                   @map("customer_id") @db.Uuid
+  firstName             String                   @map("first_name") @db.VarChar(100)
+  lastName              String?                  @map("last_name") @db.VarChar(100)
+  email                 String?                  @db.VarChar(320)
+  phone                 String?                  @db.VarChar(32)
+  designation           String?                  @db.VarChar(120)
+  isPrimary             Boolean                  @default(false) @map("is_primary")
+  status                CustomerContactStatus    @default(ACTIVE)
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  customer              Customer                 @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  meetingParticipations MeetingCustomerContact[]
 
   // One-primary-contact uniqueness is enforced by a partial SQL index in the migration.
   @@index([customerId])
@@ -565,6 +577,7 @@ model Project {
   infrastructureVersions ProjectInfrastructure[]
   goLiveAttempts         ProjectGoLive[]
   productionHandovers    ProductionHandover[]
+  meetings               Meeting[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -795,35 +808,36 @@ enum ProjectResourceType {
 }
 
 model File {
-  id                  String             @id @default(uuid()) @db.Uuid
-  projectId           String?            @map("project_id") @db.Uuid
-  fileCategory        FileCategory       @default(OTHER) @map("file_category")
-  employeeId          String?            @map("employee_id") @db.Uuid
-  leaveRequestId      String?            @map("leave_request_id") @db.Uuid
-  performanceReviewId String?            @map("performance_review_id") @db.Uuid
-  complaintId         String?            @map("complaint_id") @db.Uuid
-  fileSeriesId        String             @default(uuid()) @map("file_series_id") @db.Uuid
-  uploadedById        String             @map("uploaded_by_id") @db.Uuid
-  fileName            String             @map("file_name") @db.VarChar(255)
-  originalName        String             @map("original_name") @db.VarChar(255)
-  storageKey          String             @unique @map("storage_key") @db.VarChar(1024)
-  bucket              String             @db.VarChar(255)
-  mimeType            String             @map("mime_type") @db.VarChar(255)
-  sizeBytes           BigInt             @map("size_bytes") @db.BigInt
-  checksum            String?            @db.VarChar(255)
-  version             Int                @default(1)
-  isCurrent           Boolean            @default(true) @map("is_current")
-  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt           DateTime?          @map("deleted_at") @db.Timestamptz(6)
-  project             Project?           @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  employee            User?              @relation("FileEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  leaveRequest        LeaveRequest?      @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
-  performanceReview   PerformanceReview? @relation(fields: [performanceReviewId], references: [id], onDelete: Restrict)
-  complaint           HrComplaint?       @relation(fields: [complaintId], references: [id], onDelete: Restrict)
-  uploadedBy          User               @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  id                  String              @id @default(uuid()) @db.Uuid
+  projectId           String?             @map("project_id") @db.Uuid
+  fileCategory        FileCategory        @default(OTHER) @map("file_category")
+  employeeId          String?             @map("employee_id") @db.Uuid
+  leaveRequestId      String?             @map("leave_request_id") @db.Uuid
+  performanceReviewId String?             @map("performance_review_id") @db.Uuid
+  complaintId         String?             @map("complaint_id") @db.Uuid
+  fileSeriesId        String              @default(uuid()) @map("file_series_id") @db.Uuid
+  uploadedById        String              @map("uploaded_by_id") @db.Uuid
+  fileName            String              @map("file_name") @db.VarChar(255)
+  originalName        String              @map("original_name") @db.VarChar(255)
+  storageKey          String              @unique @map("storage_key") @db.VarChar(1024)
+  bucket              String              @db.VarChar(255)
+  mimeType            String              @map("mime_type") @db.VarChar(255)
+  sizeBytes           BigInt              @map("size_bytes") @db.BigInt
+  checksum            String?             @db.VarChar(255)
+  version             Int                 @default(1)
+  isCurrent           Boolean             @default(true) @map("is_current")
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?           @map("deleted_at") @db.Timestamptz(6)
+  project             Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  employee            User?               @relation("FileEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveRequest        LeaveRequest?       @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
+  performanceReview   PerformanceReview?  @relation(fields: [performanceReviewId], references: [id], onDelete: Restrict)
+  complaint           HrComplaint?        @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  uploadedBy          User                @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
   resources           ProjectResource[]
   bugAttachments      BugAttachment[]
+  meetingAttachments  MeetingAttachment[]
 
   @@unique([projectId, fileSeriesId, version])
   // Target key for resource ownership validation.
@@ -1210,6 +1224,7 @@ model Task {
   bugLinks            BugTaskLink[]
   infrastructureLinks InfrastructureTaskLink[]
   hrLinks             HrTaskLink[]
+  meetingLinks        MeetingTaskLink[]
 
   // Composite target key keeps children in their parent's project.
   @@unique([projectId, id])
@@ -3267,4 +3282,324 @@ model HrTaskLink {
   @@index([complaintId])
   @@index([appreciationId])
   @@map("hr_task_links")
+}
+
+enum MeetingType {
+  INTERNAL
+  CUSTOMER
+  PROJECT
+  TEAM
+  MANAGEMENT
+  HR
+  INTERVIEW
+  REVIEW
+  OTHER
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum MeetingParticipantRole {
+  ORGANIZER
+  REQUIRED
+  OPTIONAL
+}
+
+enum MeetingCustomerContactRole {
+  REQUIRED
+  OPTIONAL
+}
+
+enum MeetingResponseStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+}
+
+enum MeetingAgendaStatus {
+  PENDING
+  DISCUSSION
+  COMPLETED
+  DEFERRED
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE
+  TASK_OVERDUE
+  MEETING_INVITATION
+  MEETING_REMINDER
+  MEETING_CANCELLED
+  LEAVE_REQUEST
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  PAYMENT_REQUEST
+  PAYMENT_APPROVED
+  PAYMENT_REJECTED
+  PROJECT_STATUS
+  BUG_ASSIGNED
+  BUG_STATUS
+  APPROVAL_REQUIRED
+  SYSTEM
+  OTHER
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  PUSH
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+model Meeting {
+  id                 String        @id @default(uuid()) @db.Uuid
+  meetingCode        String        @unique @map("meeting_code") @db.VarChar(64)
+  title              String        @db.VarChar(255)
+  description        String?       @db.Text
+  meetingType        MeetingType   @default(INTERNAL) @map("meeting_type")
+  status             MeetingStatus @default(SCHEDULED)
+  organizerId        String        @map("organizer_id") @db.Uuid
+  projectId          String?       @map("project_id") @db.Uuid
+  customerId         String?       @map("customer_id") @db.Uuid
+  startAt            DateTime      @map("start_at") @db.Timestamptz(6)
+  endAt              DateTime      @map("end_at") @db.Timestamptz(6)
+  location           String?       @db.VarChar(255)
+  meetingUrl         String?       @map("meeting_url") @db.VarChar(2048)
+  agenda             String?       @db.Text
+  minutes            String?       @db.Text
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  cancelledAt        DateTime?     @map("cancelled_at") @db.Timestamptz(6)
+  cancelledById      String?       @map("cancelled_by_id") @db.Uuid
+  cancellationReason String?       @map("cancellation_reason") @db.Text
+
+  organizer         User                     @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: Restrict)
+  cancelledBy       User?                    @relation("MeetingCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  project           Project?                 @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  customer          Customer?                @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  participants      MeetingParticipant[]
+  customerContacts  MeetingCustomerContact[]
+  agendaItems       MeetingAgendaItem[]
+  structuredMinutes MeetingMinutes?
+  taskLinks         MeetingTaskLink[]
+  attachments       MeetingAttachment[]
+  statusHistory     MeetingStatusHistory[]
+
+  @@index([organizerId])
+  @@index([projectId])
+  @@index([customerId])
+  @@index([startAt])
+  @@index([endAt])
+  @@index([status, startAt])
+  @@index([cancelledById])
+  @@map("meetings")
+}
+
+model MeetingParticipant {
+  id              String                 @id @default(uuid()) @db.Uuid
+  meetingId       String                 @map("meeting_id") @db.Uuid
+  userId          String                 @map("user_id") @db.Uuid
+  participantRole MeetingParticipantRole @default(REQUIRED) @map("participant_role")
+  responseStatus  MeetingResponseStatus  @default(PENDING) @map("response_status")
+  joinedAt        DateTime?              @map("joined_at") @db.Timestamptz(6)
+  leftAt          DateTime?              @map("left_at") @db.Timestamptz(6)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([meetingId, userId])
+  @@index([userId, responseStatus])
+  @@map("meeting_participants")
+}
+
+model MeetingCustomerContact {
+  id                String                     @id @default(uuid()) @db.Uuid
+  meetingId         String                     @map("meeting_id") @db.Uuid
+  customerContactId String                     @map("customer_contact_id") @db.Uuid
+  participantRole   MeetingCustomerContactRole @default(REQUIRED) @map("participant_role")
+  responseStatus    MeetingResponseStatus      @default(PENDING) @map("response_status")
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  meeting         Meeting         @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+  customerContact CustomerContact @relation(fields: [customerContactId], references: [id], onDelete: Restrict)
+
+  @@unique([meetingId, customerContactId])
+  @@index([customerContactId])
+  @@map("meeting_customer_contacts")
+}
+
+model MeetingAgendaItem {
+  id          String              @id @default(uuid()) @db.Uuid
+  meetingId   String              @map("meeting_id") @db.Uuid
+  title       String              @db.VarChar(255)
+  description String?             @db.Text
+  sortOrder   Int                 @default(0) @map("sort_order")
+  status      MeetingAgendaStatus @default(PENDING)
+  createdById String              @map("created_by_id") @db.Uuid
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+  createdBy User    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([meetingId, sortOrder])
+  @@index([createdById])
+  @@index([status])
+  @@map("meeting_agenda_items")
+}
+
+model MeetingMinutes {
+  id           String    @id @default(uuid()) @db.Uuid
+  meetingId    String    @unique @map("meeting_id") @db.Uuid
+  summary      String    @db.Text
+  decisions    String?   @db.Text
+  createdById  String    @map("created_by_id") @db.Uuid
+  approvedById String?   @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+  createdBy  User    @relation("MinutesCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy User?   @relation("MinutesApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@index([createdById])
+  @@index([approvedById])
+  @@map("meeting_minutes")
+}
+
+model MeetingTaskLink {
+  id        String   @id @default(uuid()) @db.Uuid
+  meetingId String   @map("meeting_id") @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+  task    Task    @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@unique([meetingId, taskId])
+  @@index([taskId])
+  @@map("meeting_task_links")
+}
+
+model MeetingAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  meetingId    String   @map("meeting_id") @db.Uuid
+  fileId       String   @map("file_id") @db.Uuid
+  uploadedById String   @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+  file       File    @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  uploadedBy User    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@unique([meetingId, fileId])
+  @@index([fileId])
+  @@index([uploadedById])
+  @@map("meeting_attachments")
+}
+
+model MeetingStatusHistory {
+  id          String         @id @default(uuid()) @db.Uuid
+  meetingId   String         @map("meeting_id") @db.Uuid
+  fromStatus  MeetingStatus? @map("from_status")
+  toStatus    MeetingStatus  @map("to_status")
+  changedById String         @map("changed_by_id") @db.Uuid
+  reason      String?        @db.Text
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+  changedBy User    @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([meetingId, createdAt])
+  @@index([changedById])
+  @@map("meeting_status_history")
+}
+
+model Notification {
+  id               String               @id @default(uuid()) @db.Uuid
+  recipientId      String               @map("recipient_id") @db.Uuid
+  notificationType NotificationType     @default(OTHER) @map("notification_type")
+  title            String               @db.VarChar(255)
+  message          String               @db.Text
+  priority         NotificationPriority @default(NORMAL)
+  // Generic references are not FKs, existence guarantees or authorization grants.
+  entityType       String?              @map("entity_type") @db.VarChar(64)
+  entityId         String?              @map("entity_id") @db.Uuid
+  actionUrl        String?              @map("action_url") @db.VarChar(2048)
+  isRead           Boolean              @default(false) @map("is_read")
+  readAt           DateTime?            @map("read_at") @db.Timestamptz(6)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt        DateTime?            @map("expires_at") @db.Timestamptz(6)
+
+  recipient  User                   @relation(fields: [recipientId], references: [id], onDelete: Restrict)
+  deliveries NotificationDelivery[]
+
+  @@index([recipientId, isRead, createdAt])
+  @@index([isRead])
+  @@index([createdAt])
+  @@index([notificationType])
+  @@index([entityType, entityId])
+  @@index([expiresAt])
+  @@map("notifications")
+}
+
+model NotificationDelivery {
+  id             String                     @id @default(uuid()) @db.Uuid
+  notificationId String                     @map("notification_id") @db.Uuid
+  channel        NotificationChannel
+  status         NotificationDeliveryStatus @default(PENDING)
+  sentAt         DateTime?                  @map("sent_at") @db.Timestamptz(6)
+  deliveredAt    DateTime?                  @map("delivered_at") @db.Timestamptz(6)
+  failedAt       DateTime?                  @map("failed_at") @db.Timestamptz(6)
+  failureReason  String?                    @map("failure_reason") @db.Text
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+
+  // Multiple rows for one notification/channel preserve distinct delivery attempts.
+  @@index([notificationId, channel, createdAt])
+  @@index([status, createdAt])
+  @@map("notification_deliveries")
+}
+
+model NotificationPreference {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @map("user_id") @db.Uuid
+  notificationType NotificationType @map("notification_type")
+  // No DB delivery-policy defaults: writers must supply explicit preferences.
+  inAppEnabled     Boolean          @map("in_app_enabled")
+  emailEnabled     Boolean          @map("email_enabled")
+  pushEnabled      Boolean          @map("push_enabled")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, notificationType])
+  @@map("notification_preferences")
 }

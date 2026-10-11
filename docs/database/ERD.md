@@ -2,6 +2,140 @@
 
 ```mermaid
 erDiagram
+  USERS ||--o{ MEETINGS : "organizes"
+  USERS o|--o{ MEETINGS : "actual canceller"
+  PROJECTS o|--o{ MEETINGS : "optional project"
+  CUSTOMERS o|--o{ MEETINGS : "optional customer"
+  MEETINGS ||--o{ MEETING_PARTICIPANTS : "employee participants"
+  USERS ||--o{ MEETING_PARTICIPANTS : "internal identity"
+  MEETINGS ||--o{ MEETING_CUSTOMER_CONTACTS : "external participants"
+  CUSTOMER_CONTACTS ||--o{ MEETING_CUSTOMER_CONTACTS : "no ERP authentication"
+  MEETINGS ||--o{ MEETING_AGENDA_ITEMS : "ordered discussion items"
+  USERS ||--o{ MEETING_AGENDA_ITEMS : "creates"
+  MEETINGS ||--o| MEETING_MINUTES : "one structured minutes record"
+  USERS ||--o{ MEETING_MINUTES : "writes"
+  USERS o|--o{ MEETING_MINUTES : "actual approver"
+  MEETINGS ||--o{ MEETING_TASK_LINKS : "common executable work"
+  TASKS ||--o{ MEETING_TASK_LINKS : "existing MEETING classification"
+  MEETINGS ||--o{ MEETING_ATTACHMENTS : "physical revision references"
+  FILES ||--o{ MEETING_ATTACHMENTS : "existing MinIO metadata"
+  USERS ||--o{ MEETING_ATTACHMENTS : "actual attachment uploader"
+  MEETINGS ||--o{ MEETING_STATUS_HISTORY : "append-only history"
+  USERS ||--o{ MEETING_STATUS_HISTORY : "changes status"
+  USERS ||--o{ NOTIFICATIONS : "one recipient per row"
+  NOTIFICATIONS ||--o{ NOTIFICATION_DELIVERIES : "multiple channel attempts"
+  USERS ||--o{ NOTIFICATION_PREFERENCES : "explicit type preferences"
+
+  MEETINGS {
+    uuid id PK
+    string meeting_code UK
+    string title
+    string description "nullable"
+    MeetingType meeting_type
+    MeetingStatus status
+    uuid organizer_id FK
+    uuid project_id FK "nullable"
+    uuid customer_id FK "nullable"
+    timestamptz start_at
+    timestamptz end_at "strictly after start"
+    string location "nullable"
+    string meeting_url "nullable"
+    string agenda "nullable general text"
+    string minutes "nullable general text"
+    uuid cancelled_by_id FK "nullable"
+    timestamptz cancelled_at "nullable"
+    string cancellation_reason "nullable"
+  }
+  MEETING_PARTICIPANTS {
+    uuid id PK
+    uuid meeting_id FK "unique with user"
+    uuid user_id FK
+    MeetingParticipantRole participant_role
+    MeetingResponseStatus response_status
+    timestamptz joined_at "nullable"
+    timestamptz left_at "nullable"
+  }
+  MEETING_CUSTOMER_CONTACTS {
+    uuid id PK
+    uuid meeting_id FK "unique with contact"
+    uuid customer_contact_id FK
+    MeetingCustomerContactRole participant_role "REQUIRED or OPTIONAL only"
+    MeetingResponseStatus response_status
+  }
+  MEETING_AGENDA_ITEMS {
+    uuid id PK
+    uuid meeting_id FK
+    string title
+    string description "nullable"
+    int sort_order
+    MeetingAgendaStatus status
+    uuid created_by_id FK
+  }
+  MEETING_MINUTES {
+    uuid id PK
+    uuid meeting_id UK,FK
+    string summary
+    string decisions "nullable"
+    uuid created_by_id FK
+    uuid approved_by_id FK "nullable"
+    timestamptz approved_at "nullable"
+  }
+  MEETING_TASK_LINKS {
+    uuid id PK
+    uuid meeting_id FK "unique with task"
+    uuid task_id FK
+    timestamptz created_at
+  }
+  MEETING_ATTACHMENTS {
+    uuid id PK
+    uuid meeting_id FK "unique with file"
+    uuid file_id FK
+    uuid uploaded_by_id FK
+    timestamptz created_at
+  }
+  MEETING_STATUS_HISTORY {
+    uuid id PK
+    uuid meeting_id FK
+    MeetingStatus from_status "nullable"
+    MeetingStatus to_status
+    uuid changed_by_id FK
+    string reason "nullable"
+    timestamptz created_at
+  }
+  NOTIFICATIONS {
+    uuid id PK
+    uuid recipient_id FK
+    NotificationType notification_type
+    string title
+    string message
+    NotificationPriority priority
+    string entity_type "nullable generic reference, not authorization"
+    uuid entity_id "nullable generic reference, not FK"
+    string action_url "nullable"
+    boolean is_read
+    timestamptz read_at "nullable"
+    timestamptz created_at
+    timestamptz expires_at "nullable"
+  }
+  NOTIFICATION_DELIVERIES {
+    uuid id PK
+    uuid notification_id FK
+    NotificationChannel channel
+    NotificationDeliveryStatus status
+    timestamptz sent_at "nullable"
+    timestamptz delivered_at "nullable"
+    timestamptz failed_at "nullable"
+    string failure_reason "nullable"
+  }
+  NOTIFICATION_PREFERENCES {
+    uuid id PK
+    uuid user_id FK "unique with type"
+    NotificationType notification_type
+    boolean in_app_enabled "explicit"
+    boolean email_enabled "explicit"
+    boolean push_enabled "explicit"
+  }
+
   USERS ||--o{ LEAVE_BALANCES : "annual employee balance"
   LEAVE_TYPES ||--o{ LEAVE_BALANCES : "leave bucket"
   USERS ||--o{ LEAVE_REQUESTS : "requests leave"
@@ -851,7 +985,7 @@ erDiagram
     timestamptz updated_at
   }
 
-  PROJECTS o|--o{ TASKS : "project work or standalone HR"
+  PROJECTS o|--o{ TASKS : "project work or standalone HR/MEETING"
   TASKS o|--o{ TASKS : "parent and children in same project"
   USERS ||--o{ TASKS : "creates"
   USERS o|--o{ TASKS : "current assignee"
@@ -867,7 +1001,7 @@ erDiagram
 
   TASKS {
     uuid id PK
-    uuid project_id FK "nullable only for standalone HR"
+    uuid project_id FK "nullable only for HR workstream or MEETING type"
     uuid sprint_id FK "nullable, same project"
     uuid parent_task_id FK "nullable, same project"
     string task_code UK
@@ -1553,3 +1687,18 @@ TIMESTAMPTZ(6). All new entities have createdAt, with updatedAt except the two
 history tables/HrTaskLink; compact blocks omit common timestamps. Confidential,
 internal and visibility flags require future HR authorization checks on attached
 Task/File metadata and physical MinIO downloads, not just Project/uploader access.
+
+Step 18: Calendar is a future derived aggregation of existing meeting/task/action/
+leave/sprint dates, not another persisted event model. All 23 new FKs RESTRICT.
+Meeting participants are employees or existing customer contacts, never customer
+logins. TaskType.MEETING and common execution/history/assignment reused; standalone
+MEETING tasks allowed in any workstream without Project parent/sprint. Attachments
+pin exact MinIO File revisions, including standalone OTHER files; no binary data.
+History append-only; one structured minutes record per meeting alongside optional
+general meeting text. One recipient per notification, generic type/UUID pair not
+a business FK or access grant; deliveries track independent future attempts.
+Preferences explicit with no seeded/default opt-in policy. All new dates
+TIMESTAMPTZ(6). Common createdAt/updatedAt omitted from compact entities except
+created-only notification/history/link blocks. Ownership alignment and sensitive
+notification/attachment visibility remain future authorized service checks.
+No UI/API/calendar/chat/reminder/delivery engine, RBAC, AWS, tenants or Step 19.

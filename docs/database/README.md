@@ -1613,3 +1613,178 @@ checks, not only uploader/task assignee/Project/customer access. No authorizatio
 logic, notifications, UI/API/controllers/services, workflow/approval engine,
 automation, AWS, attendance/payroll/recruitment/onboarding/offboarding/training/
 expenses/benefits or Step 18 work is implemented.
+
+## Step 18 — Meetings / Calendar / Internal Communication / Notifications
+
+Migration: `20261011145450_add_meetings_notifications`. Eleven tables, ten enums
+and inverse relations on existing User, Customer, CustomerContact, Project, Task
+and File. No new user/contact/task/file/calendar/chat/organization/auth engine.
+Earlier "not implemented" scope statements describe their historical steps.
+
+### Tables and fields
+
+UUID primary/foreign keys; createdAt default now on every new table. All
+DateTime fields are TIMESTAMPTZ(6). updatedAt is Prisma-managed except on the
+three created-only links/history and Notification, as requested; raw SQL writers
+must explicitly supply/update updatedAt where present. No duration/progress/
+reminder source-of-truth duplicates, binary data or JSONB.
+
+| Model / table | Required fields besides id/applicable timestamps | Nullable fields |
+| --- | --- | --- |
+| Meeting / meetings | unique meetingCode VARCHAR(64), title VARCHAR(255), meetingType (INTERNAL), status (SCHEDULED), organizerId, startAt, endAt | description/agenda/minutes/cancellationReason TEXT, projectId, customerId, location VARCHAR(255), meetingUrl VARCHAR(2048), cancelledAt/cancelledById |
+| MeetingParticipant / meeting_participants | meetingId, userId, participantRole (REQUIRED), responseStatus (PENDING) | joinedAt, leftAt |
+| MeetingCustomerContact / meeting_customer_contacts | meetingId, customerContactId, participantRole (REQUIRED), responseStatus (PENDING) | none |
+| MeetingAgendaItem / meeting_agenda_items | meetingId, title VARCHAR(255), sortOrder (0), status (PENDING), createdById | description TEXT |
+| MeetingMinutes / meeting_minutes | unique meetingId, summary TEXT, createdById | decisions TEXT, approvedById/approvedAt |
+| MeetingTaskLink / meeting_task_links | meetingId, taskId | none |
+| MeetingAttachment / meeting_attachments | meetingId, fileId, uploadedById | none |
+| MeetingStatusHistory / meeting_status_history | meetingId, toStatus, changedById | fromStatus, reason TEXT |
+| Notification / notifications | recipientId, notificationType (OTHER), title VARCHAR(255), message TEXT, priority (NORMAL), isRead (false) | entityType VARCHAR(64)/entityId UUID, actionUrl VARCHAR(2048), readAt, expiresAt |
+| NotificationDelivery / notification_deliveries | notificationId, channel, status (PENDING) | sentAt, deliveredAt, failedAt, failureReason TEXT |
+| NotificationPreference / notification_preferences | userId, notificationType, inAppEnabled, emailEnabled, pushEnabled | none |
+
+All 23 new FKs use RESTRICT deletion; referenced employees, customer contacts,
+meetings and exact file/task records cannot silently disappear.
+
+### Meetings and participants
+
+Meeting is the single source of truth. Types: INTERNAL, CUSTOMER, PROJECT, TEAM,
+MANAGEMENT, HR, INTERVIEW, REVIEW, OTHER. Statuses: SCHEDULED, IN_PROGRESS,
+COMPLETED, CANCELLED, NO_SHOW. Types/optional customer association do not create
+customer logins or an interview/recruitment module.
+
+Organizer is an actual User, not inferred from participant roles. Cancellation
+retains actual user/time pair and optional reason. SQL requires endAt > startAt;
+duration is calculated from endAt - startAt, never stored. No recurrence,
+rescheduling engine, room booking, meeting provider or email calendar integration.
+Optional Project/Customer FKs prove existence, not cross-record ownership.
+
+Internal participants unique(meetingId,userId), role ORGANIZER/REQUIRED/OPTIONAL;
+external contact participants unique(meetingId,customerContactId), role
+REQUIRED/OPTIONAL only. Both share PENDING/ACCEPTED/DECLINED/TENTATIVE response
+statuses. Existing CustomerContact supplies external identity/contact details;
+no duplicated name/email/phone, password, permission or ERP authentication.
+Internal attendance times optional; leftAt needs joinedAt and cannot precede it.
+No automatic organizer-participant row, acceptance/attendance coupling or invitation.
+
+Structured agenda items ordered by nonnegative sortOrder, statuses PENDING,
+DISCUSSION, COMPLETED, DEFERRED, with actual employee creator. Meeting.agenda and
+Meeting.minutes remain optional general text; structured MeetingMinutes is a
+separate one-per-meeting record, not a versioning engine. It records summary,
+optional decisions and actual creator/approval actor/time pair. These text fields
+are not automatically synchronized; future writers/UI must distinguish general
+notes from the approved structured record and retain approved evidence.
+
+MeetingStatusHistory supports initial NULL → SCHEDULED and all requested states,
+with actual changedBy/reason. No-op fromStatus=toStatus rejected; UPDATE, DELETE
+and TRUNCATE prohibited. Lifecycle/current status and history remain independently
+written: future services must authorize and serialize them in one transaction.
+No auto-population, lifecycle propagation or generic workflow/approval engine.
+
+### Work items, file attachments and cross-context checks
+
+There was no generic task-reference/file-reference table suitable for meetings.
+MeetingTaskLink and MeetingAttachment follow the existing typed-link pattern.
+Unique(meetingId,taskId) and unique(meetingId,fileId) prevent duplicates. Work
+retains existing Task assignment, status, comments, history and dependencies.
+Use the existing TaskType.MEETING and the responsible TaskWorkstream; neither
+enum changed. Links do not automatically set classification or synchronize
+meeting/work state. Future writers validate linked TaskType.MEETING.
+
+Step 17 standalone-HR task scope is extended: NULL Project is now also allowed
+for TaskType.MEETING in any responsible workstream, with no parentTaskId/sprintId.
+Standalone HR tasks remain supported unchanged; other non-HR/non-MEETING work
+still requires a Project. Project hierarchy/sprint composite ownership FKs remain
+unchanged, so NULL cannot bypass them. No fake project or meeting-specific task
+engine is introduced. This supersedes earlier HR-only standalone descriptions.
+
+MeetingAttachment references the exact File row/physical revision and actual
+attachment uploader. File's existing series/version/storageKey/bucket/mime/
+size/checksum/current/soft-delete metadata and MinIO storage remain unchanged.
+General standalone meeting files use OTHER with NULL Project; existing standalone
+series/version partial unique index already protects them. No MEETING file enum,
+copied metadata, file bytes or duplicate storage table. HR categories remain
+available only under their existing classification/subject constraints.
+Current revision flags still require serialized application writers; attachments
+must not silently resolve to the newest version instead of their exact File.
+
+Future authorized writers must validate Meeting.projectId/customerId consistency,
+customer-contact membership and optional project/task/file ownership, including
+changes to either linked endpoint. Customer-free and project-free planning is
+valid; do not invent redundant owner columns just to express an optional context.
+Fks prove endpoint existence, not ownership alignment or authorization.
+An attachment/link must never expose confidential HR File/Task content through a
+customer/project/general meeting; check all linked record policies and uploader
+authority when creating, reading, moving and downloading. External contacts
+remain unauthenticated; participation does not grant portal, HR or MinIO access.
+
+### Notifications and preferences
+
+One Notification per employee recipient. Fan-out to ten employees creates ten
+records so read state is independent; no separate notification recipients table.
+Types: TASK_ASSIGNED, TASK_DUE, TASK_OVERDUE, MEETING_INVITATION,
+MEETING_REMINDER, MEETING_CANCELLED, LEAVE_REQUEST, LEAVE_APPROVED,
+LEAVE_REJECTED, PAYMENT_REQUEST, PAYMENT_APPROVED, PAYMENT_REJECTED,
+PROJECT_STATUS, BUG_ASSIGNED, BUG_STATUS, APPROVAL_REQUIRED, SYSTEM, OTHER.
+Priority LOW/NORMAL/HIGH/URGENT uses its own enum because ProjectPriority uses
+MEDIUM, not NORMAL. Read state false/null by default, SQL requires isRead equal
+to presence of readAt. Mark/reset read state atomically; expiresAt optional,
+future readers/delivery workers decide expiry handling. No automatic purging.
+
+entityType and UUID entityId must both be present or both NULL; entityType cannot
+be blank. They are intentionally generic references, not business-entity foreign
+keys. No dozens of nullable object FKs, entity registry, immutable event store or
+permission grant. Services must whitelist type resolution, validate existence
+and authorized recipient access BEFORE creating or returning sensitive content,
+and recheck access after ownership changes. Reading someone else's notification
+must be prohibited. Validate actionUrl as a safe permitted internal route before
+rendering/redirecting; no route/API implementation exists in this database step.
+
+NotificationDelivery captures each future attempt; multiple rows for the same
+notification/channel are intentional for retries. Channels IN_APP, EMAIL, PUSH;
+statuses PENDING, SENT, DELIVERED, FAILED, SKIPPED. Optional sent/delivered/failed
+times are ordered if present together. No uniqueness forcing attempts to overwrite
+one another; a future retry creates its own attempt and records its result.
+Status/timestamp/failureReason coherence, idempotent dispatch, retry scheduling
+and retention are future service rules, not an implemented delivery state machine.
+Delivery is not read acknowledgement and does not update Notification.isRead.
+WebSocket infrastructure and email/push workers are not created.
+
+NotificationPreference unique(userId,notificationType), with all three Boolean
+flags explicitly required, deliberately no database policy defaults. Absence of
+a preference row is not opt-in or opt-out: application policy defines defaults
+later. No bulk preference seed rows or automatic enrollment; existing department/
+category seed unchanged. Preferences are not evidence of permission to receive
+a sensitive business object.
+
+### Calendar, reminders, indexes and scope
+
+```
+Calendar = derived view
+Meetings = source of truth
+Tasks = source of truth for executable work
+Project Actions = source of truth for high-level follow-ups
+Notifications = generated communication records
+```
+
+A future calendar aggregates Meeting.startAt/endAt, Task.startDate/dueDate,
+ProjectAction.dueDate, LeaveRequest.startDate/endDate and Sprint.startDate/endDate.
+No SQL calendar/materialized view or calendar_events duplication created.
+Reminders will use existing meeting/task/action dates; no extra reminder times
+or reminder engine. Notification generation, default channel policies, timezone
+rendering and aggregation authorization remain application work.
+
+Indexes include organizer/project/customer/canceller; startAt, endAt and
+status/startAt; unique participant pairs plus user/response/contact lookups;
+agenda meeting/order/status/creator; unique minutes meeting plus author/approver;
+unique meeting-task/file pairs plus reverse task/file/uploader; history meeting/
+creation and actor; notifications recipient/read/creation plus read, type,
+creation, entity reference and expiry; deliveries notification/channel/creation
+and status/creation; preference unique user/type prefix.
+
+Canonical roles/permissions/user_roles/role_permissions remain absent, so the
+conditional permission addition is skipped without creating another RBAC system
+or granting permissions. Intended future codes: meeting.read/create/update/cancel/
+manage and notification.read/manage/preferences, once a compatible system exists.
+No frontend, APIs, controllers, services, auth logic, chat, tenant model, AWS,
+calendar app, real-time delivery, workers, cron/automation or Step 19 implemented.

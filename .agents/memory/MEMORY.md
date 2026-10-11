@@ -6,3 +6,4 @@
 - [Task write contracts](task-write-contracts.md) — serialize current-assignee/history changes; cycle validation and graph policy remain future service responsibilities.
 - [Infrastructure write contracts](infrastructure-write-contracts.md) — validate cross-module Project ownership and serialize go-live readiness/checklist writes.
 - [HR write contracts](hr-write-contracts.md) — serialize leave decisions/history/balances; actual HR actors are not inferred from managers or task assignees.
+- [Meeting/notification writes](meeting-notification-write-contracts.md) — coordinate meeting history; reauthorize copied notification content; delivery is not read acknowledgement.

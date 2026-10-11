@@ -987,3 +987,50 @@
   sales/project/financial/design/development/QA/infrastructure entities preserved.
   No UI/API/services, authorization implementation, notifications, attendance,
   payroll, automation, AWS, tenants or Step 18 implementation.
+
+## Step 18 — Meetings and notification records
+
+- Eleven requested tables and ten enums; existing User/Customer/CustomerContact/
+  Project/Task/File reused. No duplicate identity, calendar, chat, task, storage,
+  reminder, workflow, approval, RBAC or organization system.
+- Internal roles include ORGANIZER; external contacts use a separate REQUIRED/
+  OPTIONAL-only enum and shared response states. External identities remain
+  CustomerContact records without employee accounts or duplicated contact data.
+- Meeting times TIMESTAMPTZ(6), strict end > start, no stored duration.
+  Cancellation and minute approval retain actual actor/time pairs; agenda
+  structured and one minutes record per meeting. General meeting text and
+  structured minutes deliberately coexist without automatic synchronization.
+- Meeting status history is append-only including no TRUNCATE; future writers
+  coordinate current state/history and retain approved minutes. No lifecycle/
+  invitation/approval automation or state propagation into task work.
+- No compatible generic task/file reference models existed, so typed
+  MeetingTaskLink and MeetingAttachment added with unique endpoint pairs.
+  Existing TaskType.MEETING reused with responsible workstream; future linking
+  writers validate classification and optional context alignment.
+- Extend existing standalone Task check to HR workstream OR MEETING task type,
+  no Project parent/sprint. Other non-HR/non-MEETING work still Project-required.
+  Existing Project ownership FKs/Task enums untouched. No fake Project records.
+- Standalone meeting files use existing File category OTHER/NULL Project and
+  existing physical series/version uniqueness. Attachments pin exact physical
+  revisions; MinIO metadata/storage unchanged. HR file scope checks unchanged.
+  New generic meeting links do not grant access to confidential HR attachments.
+- Optional Project/Customer associations prove existence, not alignment. Future
+  services validate customer-contact membership, ownership/context moves and
+  permissions, rather than introducing redundant owners/polymorphic registries.
+- One notification row per recipient, independent read state and optional
+  expiry. Generic entity type/UUID pair, no business-object FK explosion.
+  References/preferences are not authorization; sensitive text must only be
+  created/returned after validating entity access and recipient ownership.
+- NotificationPriority is separate (NORMAL instead of ProjectPriority.MEDIUM).
+  Read flag/timestamp paired; read acknowledgement independent of delivery.
+- Multiple delivery rows per notification/channel retain attempts rather than
+  overwriting them. Only IN_APP/EMAIL/PUSH channel values requested; no WebSocket,
+  transport integrations, dispatch, retries, scheduler or delivery automation.
+- Preference Boolean flags required without database defaults; missing rows
+  resolved by future application policy, no seeded subscription/enrollment.
+  Existing seed unchanged; canonical permission tables absent so permission
+  records not added and no new authorization system/grants introduced.
+- Calendar is a derived authorized aggregation of meetings/tasks/project actions/
+  leave/sprints, not another stored event model. Reminders derive existing dates.
+  All 23 new FKs RESTRICT; no existing tables/data/history reset or dropped.
+  No UI/API/services, notifications workers, chat, AWS, tenants or Step 19 work.

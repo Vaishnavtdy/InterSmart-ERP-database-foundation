@@ -1,0 +1,936 @@
+# Step 18 — Meetings / Calendar / Internal Communication / Notifications
+
+You are continuing development of the existing **InterSmart Internal ERP**.
+
+This is **Step 18 only**.
+
+## Objective
+
+Implement the database layer for:
+
+1. Internal meetings
+2. Meeting participants
+3. Meeting agenda/items
+4. Meeting minutes
+5. Meeting action items
+6. Meeting status/history
+7. Internal notifications
+8. Notification preferences
+9. Notification delivery tracking
+10. Reusable reminders through the existing task/action architecture where appropriate
+
+Do **not** implement frontend pages, APIs, controllers, services, WebSocket handlers, email workers, cron jobs, or notification automation in this step.
+
+---
+
+# 1. IMPORTANT ARCHITECTURE RULES
+
+Before making changes:
+
+- Inspect the complete existing Prisma schema.
+- Reuse existing `users`, `projects`, `customers`, `tasks`, `project_actions`, `files`, `roles`, and `permissions`.
+- Do not create duplicate user/employee tables.
+- Do not create a separate calendar application.
+- Do not create separate task tables for meetings.
+- Do not create a separate messaging/chat system in this step.
+- Do not introduce AWS.
+- Do not introduce a multi-tenant organization model.
+- Do not build a generic workflow engine.
+- Do not build a generic approval engine.
+- Do not build real-time notification infrastructure yet.
+
+This ERP is for one organization: **InterSmart**.
+
+---
+
+# 2. MEETINGS
+
+Create:
+
+## `meetings`
+
+Fields:
+
+- `id` UUID PK
+- `meeting_code` UNIQUE
+- `title`
+- `description` nullable
+- `meeting_type`
+- `status`
+- `organizer_id` FK → users
+- `project_id` nullable FK → projects
+- `customer_id` nullable FK → customers
+- `start_at`
+- `end_at`
+- `location` nullable
+- `meeting_url` nullable
+- `agenda` nullable
+- `minutes` nullable
+- `created_at`
+- `updated_at`
+- `cancelled_at` nullable
+- `cancelled_by_id` nullable → users
+- `cancellation_reason` nullable
+
+Meeting types:
+
+```text
+INTERNAL
+CUSTOMER
+PROJECT
+TEAM
+MANAGEMENT
+HR
+INTERVIEW
+REVIEW
+OTHER
+```
+
+Meeting statuses:
+
+```text
+SCHEDULED
+IN_PROGRESS
+COMPLETED
+CANCELLED
+NO_SHOW
+```
+
+Use `DateTime` for `start_at` and `end_at`.
+
+Do not store duration separately.
+
+Duration should be calculated from:
+
+```text
+end_at - start_at
+```
+
+---
+
+# 3. MEETING PARTICIPANTS
+
+Create:
+
+## `meeting_participants`
+
+Fields:
+
+- `id` UUID PK
+- `meeting_id` FK
+- `user_id` FK → users
+- `participant_role`
+- `response_status`
+- `joined_at` nullable
+- `left_at` nullable
+- `created_at`
+- `updated_at`
+
+Participant roles:
+
+```text
+ORGANIZER
+REQUIRED
+OPTIONAL
+```
+
+Response statuses:
+
+```text
+PENDING
+ACCEPTED
+DECLINED
+TENTATIVE
+```
+
+Constraints:
+
+- Unique `meeting_id + user_id`
+
+Do not create customer login accounts.
+
+For customer meetings, the external customer/contact can be represented separately without giving them ERP authentication.
+
+---
+
+# 4. CUSTOMER MEETING CONTACTS
+
+Because customers do not authenticate into the ERP, create:
+
+## `meeting_customer_contacts`
+
+Fields:
+
+- `id` UUID PK
+- `meeting_id` FK
+- `customer_contact_id` FK → customer_contacts
+- `participant_role`
+- `response_status`
+- `created_at`
+- `updated_at`
+
+Participant roles:
+
+```text
+REQUIRED
+OPTIONAL
+```
+
+Response statuses:
+
+```text
+PENDING
+ACCEPTED
+DECLINED
+TENTATIVE
+```
+
+Constraint:
+
+- Unique `meeting_id + customer_contact_id`
+
+Do not duplicate customer contact information inside the meeting table.
+
+---
+
+# 5. MEETING AGENDA ITEMS
+
+Create:
+
+## `meeting_agenda_items`
+
+Fields:
+
+- `id` UUID PK
+- `meeting_id` FK
+- `title`
+- `description` nullable
+- `sort_order`
+- `status`
+- `created_by_id` FK → users
+- `created_at`
+- `updated_at`
+
+Statuses:
+
+```text
+PENDING
+DISCUSSION
+COMPLETED
+DEFERRED
+```
+
+This allows a meeting to have multiple structured agenda items.
+
+---
+
+# 6. MEETING MINUTES
+
+Although the meeting model contains a general `minutes` field, structured minutes are required for important meetings.
+
+Create:
+
+## `meeting_minutes`
+
+Fields:
+
+- `id` UUID PK
+- `meeting_id` UNIQUE FK
+- `summary`
+- `decisions` nullable
+- `created_by_id` FK → users
+- `approved_by_id` nullable FK → users
+- `approved_at` nullable
+- `created_at`
+- `updated_at`
+
+Do not create multiple minute records for the same meeting unless the existing architecture explicitly requires versioning.
+
+The simple model should be:
+
+```text
+Meeting
+  └── one Meeting Minutes
+```
+
+---
+
+# 7. MEETING ACTION ITEMS
+
+Reuse the existing common task engine wherever the action represents executable work.
+
+Do NOT create:
+
+```text
+meeting_tasks
+meeting_action_tasks
+```
+
+Instead, use:
+
+```text
+tasks.task_type = MEETING
+```
+
+and:
+
+```text
+tasks.workstream
+```
+
+based on the responsible department/workstream.
+
+If the existing task architecture supports a generic reference/link pattern, use it.
+
+If not, create:
+
+## `meeting_task_links`
+
+Fields:
+
+- `id`
+- `meeting_id`
+- `task_id`
+- `created_at`
+
+Constraints:
+
+- Unique `meeting_id + task_id`
+
+This allows a meeting to produce multiple executable tasks.
+
+Do not duplicate:
+
+- task assignment
+- task status
+- task comments
+- task history
+
+Use the existing task engine.
+
+---
+
+# 8. PROJECT MEETING RELATIONSHIP
+
+Meetings can optionally belong to projects:
+
+```text
+meetings.project_id → projects.id
+```
+
+This allows:
+
+- Project review meetings
+- Customer meetings
+- PMO meetings
+- Development meetings
+- QA meetings
+- Sprint meetings
+- Approval meetings
+
+Do not create separate project meeting tables.
+
+---
+
+# 9. CUSTOMER RELATIONSHIP
+
+Meetings may optionally be associated with:
+
+```text
+meetings.customer_id → customers.id
+```
+
+This is useful for customer meetings.
+
+The actual external participants should come from:
+
+```text
+customer_contacts
+```
+
+Do not duplicate:
+
+- customer name
+- customer email
+- customer phone
+
+inside meeting records.
+
+---
+
+# 10. MEETING FILES
+
+Reuse the existing `files` table.
+
+If a generic file-reference model already exists, use it.
+
+If not, create:
+
+## `meeting_attachments`
+
+Fields:
+
+- `id`
+- `meeting_id`
+- `file_id`
+- `uploaded_by_id`
+- `created_at`
+
+Constraints:
+
+- Unique `meeting_id + file_id`
+
+Do not store binary file contents in PostgreSQL.
+
+Files continue to use the existing MinIO storage architecture.
+
+---
+
+# 11. MEETING STATUS HISTORY
+
+Create:
+
+## `meeting_status_history`
+
+Fields:
+
+- `id`
+- `meeting_id`
+- `from_status` nullable
+- `to_status`
+- `changed_by_id` FK → users
+- `reason` nullable
+- `created_at`
+
+This provides an audit trail for:
+
+- Scheduled
+- In progress
+- Completed
+- Cancelled
+- No-show
+
+---
+
+# 12. INTERNAL NOTIFICATIONS
+
+Create:
+
+## `notifications`
+
+Fields:
+
+- `id` UUID PK
+- `recipient_id` FK → users
+- `notification_type`
+- `title`
+- `message`
+- `priority`
+- `entity_type` nullable
+- `entity_id` nullable
+- `action_url` nullable
+- `is_read`
+- `read_at` nullable
+- `created_at`
+- `expires_at` nullable
+
+Notification types:
+
+```text
+TASK_ASSIGNED
+TASK_DUE
+TASK_OVERDUE
+MEETING_INVITATION
+MEETING_REMINDER
+MEETING_CANCELLED
+LEAVE_REQUEST
+LEAVE_APPROVED
+LEAVE_REJECTED
+PAYMENT_REQUEST
+PAYMENT_APPROVED
+PAYMENT_REJECTED
+PROJECT_STATUS
+BUG_ASSIGNED
+BUG_STATUS
+APPROVAL_REQUIRED
+SYSTEM
+OTHER
+```
+
+Priority:
+
+```text
+LOW
+NORMAL
+HIGH
+URGENT
+```
+
+Important:
+
+`entity_type` and `entity_id` are references to the business object that generated the notification.
+
+Do not create dozens of nullable foreign keys such as:
+
+```text
+project_id
+task_id
+bug_id
+leave_request_id
+payment_id
+...
+```
+
+inside the notification table.
+
+---
+
+# 13. NOTIFICATION READ STATE
+
+The notification itself should represent a notification for one user.
+
+Do not create a separate `notification_recipients` table unless the existing design specifically requires one notification to be independently addressed to many users.
+
+For now:
+
+```text
+notification
+    ↓
+one recipient
+```
+
+If the same event needs to notify 10 employees, create 10 notification records.
+
+This keeps read/unread state simple.
+
+---
+
+# 14. NOTIFICATION DELIVERY
+
+The ERP may later support:
+
+- In-app
+- Email
+- Push
+- WebSocket
+
+Do not implement delivery infrastructure yet.
+
+Create:
+
+## `notification_deliveries`
+
+Fields:
+
+- `id` UUID PK
+- `notification_id` FK
+- `channel`
+- `status`
+- `sent_at` nullable
+- `delivered_at` nullable
+- `failed_at` nullable
+- `failure_reason` nullable
+- `created_at`
+- `updated_at`
+
+Channels:
+
+```text
+IN_APP
+EMAIL
+PUSH
+```
+
+Statuses:
+
+```text
+PENDING
+SENT
+DELIVERED
+FAILED
+SKIPPED
+```
+
+The future notification service can use this table to track delivery attempts.
+
+Do not implement the worker now.
+
+---
+
+# 15. NOTIFICATION PREFERENCES
+
+Create:
+
+## `notification_preferences`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` FK → users
+- `notification_type`
+- `in_app_enabled`
+- `email_enabled`
+- `push_enabled`
+- `created_at`
+- `updated_at`
+
+Constraint:
+
+```text
+user_id + notification_type
+```
+
+must be unique.
+
+This allows an employee to configure notification delivery preferences.
+
+Default behavior should be handled by application logic later.
+
+Do not insert a huge set of preference records unless the existing application already uses seed configuration.
+
+---
+
+# 16. REMINDERS
+
+Do not create a separate reminder engine.
+
+For meeting reminders, future application logic can generate notifications based on:
+
+```text
+meetings.start_at
+```
+
+For task reminders:
+
+```text
+tasks.due_date
+```
+
+For project actions:
+
+```text
+project_actions.due_date
+```
+
+Do not store duplicated reminder timestamps unless there is a clear business requirement.
+
+---
+
+# 17. CALENDAR DESIGN
+
+Do not create a separate `calendar_events` table.
+
+The ERP calendar should later aggregate events from existing entities:
+
+```text
+Meetings
+Tasks
+Project Actions
+Leave Requests
+Sprints
+```
+
+Therefore:
+
+**Meeting is the source of truth for meetings.**
+
+Do not duplicate meetings into a calendar table.
+
+---
+
+# 18. INTERNAL CHAT
+
+Do NOT implement internal chat/messaging in Step 18.
+
+Do not create:
+
+```text
+conversations
+messages
+chat_rooms
+chat_participants
+```
+
+That can be a separate future module if required.
+
+Notifications are not chat messages.
+
+---
+
+# 19. PERMISSIONS
+
+Reuse:
+
+```text
+roles
+permissions
+user_roles
+role_permissions
+```
+
+Add meeting/notification permissions if they fit the existing permission system:
+
+```text
+meeting.read
+meeting.create
+meeting.update
+meeting.cancel
+meeting.manage
+
+notification.read
+notification.manage
+notification.preferences
+```
+
+Do not automatically grant these permissions to every role.
+
+Follow the existing RBAC architecture.
+
+---
+
+# 20. INDEXES
+
+Add appropriate indexes.
+
+At minimum consider:
+
+```text
+meetings.organizer_id
+meetings.project_id
+meetings.customer_id
+meetings.start_at
+meetings.end_at
+meetings.status
+
+meeting_participants.user_id
+meeting_participants.meeting_id
+
+meeting_customer_contacts.customer_contact_id
+
+meeting_agenda_items.meeting_id
+
+notifications.recipient_id
+notifications.is_read
+notifications.created_at
+notifications.notification_type
+
+notification_deliveries.notification_id
+notification_deliveries.status
+
+notification_preferences.user_id
+```
+
+For calendar queries, indexing:
+
+```text
+start_at
+end_at
+```
+
+is important.
+
+---
+
+# 21. DATA INTEGRITY
+
+Add appropriate constraints.
+
+Examples:
+
+- `end_at > start_at`
+- participant uniqueness
+- customer-contact uniqueness
+- notification preference uniqueness
+- meeting minutes uniqueness
+- meeting-task link uniqueness
+
+Use Prisma-supported constraints where possible.
+
+If PostgreSQL-specific check constraints are necessary and Prisma cannot express them cleanly, use a migration SQL statement rather than weakening the data model.
+
+---
+
+# 22. SECURITY
+
+Notifications may expose business-sensitive information.
+
+Application-level authorization must later ensure that a user only receives notifications they are permitted to see.
+
+Do not rely on:
+
+```text
+entity_type
+entity_id
+```
+
+as an authorization mechanism.
+
+Those fields are references only.
+
+The backend must validate access to the referenced entity before creating or returning sensitive notifications.
+
+---
+
+# 23. NO DUPLICATION
+
+Do not create duplicates of existing entities.
+
+Reuse:
+
+```text
+users
+customers
+customer_contacts
+projects
+tasks
+project_actions
+files
+roles
+permissions
+```
+
+Do not create:
+
+```text
+employee_meetings
+project_meetings
+customer_meetings
+department_meetings
+meeting_tasks
+calendar_tasks
+calendar_events
+user_notifications
+employee_notifications
+```
+
+unless the existing architecture explicitly requires a specialized model.
+
+---
+
+# 24. MIGRATION
+
+Create one clean Prisma migration.
+
+Suggested name:
+
+```bash
+npx prisma migrate dev --name add_meetings_notifications
+```
+
+Do NOT:
+
+```bash
+npx prisma migrate reset
+```
+
+Do not:
+
+- delete previous migrations
+- drop existing business tables
+- recreate the database
+- remove existing data
+- rewrite unrelated schema
+
+Make only the changes required for Step 18.
+
+---
+
+# 25. VALIDATION
+
+Run:
+
+```bash
+npx prisma validate
+```
+
+Then:
+
+```bash
+npx prisma generate
+```
+
+Then run the existing project checks from `package.json`:
+
+- TypeScript
+- lint
+- tests
+- build
+
+Fix only problems introduced by Step 18.
+
+---
+
+# 26. DOCUMENTATION
+
+Update existing database/schema documentation.
+
+Document:
+
+- Meeting model
+- Meeting participants
+- Customer participants
+- Agenda
+- Minutes
+- Meeting/task relationship
+- Meeting history
+- Notification architecture
+- Notification delivery
+- Notification preferences
+- Calendar aggregation strategy
+
+Important architectural note:
+
+```text
+Calendar = derived view
+Meetings = source of truth
+Tasks = source of truth for work
+Project Actions = source of truth for high-level follow-ups
+Notifications = generated communication records
+```
+
+---
+
+# 27. FINAL VALIDATION CHECKLIST
+
+Before finishing:
+
+- [ ] Existing Prisma schema inspected.
+- [ ] Existing users reused.
+- [ ] Existing customers reused.
+- [ ] Existing customer contacts reused.
+- [ ] Existing projects reused.
+- [ ] Existing tasks reused.
+- [ ] Existing files reused.
+- [ ] Meetings implemented.
+- [ ] Internal participants implemented.
+- [ ] Customer contacts implemented.
+- [ ] Agenda items implemented.
+- [ ] Meeting minutes implemented.
+- [ ] Meeting status history implemented.
+- [ ] Meeting/task relationship implemented only if needed.
+- [ ] Meeting attachments implemented only if no generic file relation exists.
+- [ ] Notifications implemented.
+- [ ] Notification delivery tracking implemented.
+- [ ] Notification preferences implemented.
+- [ ] No calendar-events duplication.
+- [ ] No chat system created.
+- [ ] No duplicate task system.
+- [ ] No duplicate file system.
+- [ ] No AWS services.
+- [ ] Proper indexes added.
+- [ ] Proper unique constraints added.
+- [ ] Meeting time integrity handled.
+- [ ] Prisma migration created.
+- [ ] `prisma validate` passes.
+- [ ] `prisma generate` passes.
+- [ ] Existing tests pass.
+- [ ] Existing build passes.
+- [ ] Documentation updated.
+
+## STOP CONDITION
+
+After completing Step 18 and validation, **STOP**.
+
+Do not automatically implement Step 19.
+
+Wait for the next instruction.

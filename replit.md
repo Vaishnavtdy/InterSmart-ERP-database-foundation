@@ -108,6 +108,14 @@ outside this ERP; configuration flags do not configure those services.
 
 ## Gotchas
 
+- Meetings/notifications are database records only. Calendar aggregates existing
+  meeting/task/action/leave/sprint dates; do not create calendar/chat/reminder
+  engines or delivery workers without a separate request.
+- Standalone common tasks may now be HR workstream or MEETING type (any responsible
+  workstream), with no project parent/sprint. Meeting/file/entity references and
+  notification preferences are not authorization grants; validate sensitive
+  source records and the recipient before publishing notification content.
+
 - HR leave/performance/complaints/appreciation are database foundations only.
   Sensitive HR records do not inherit project/customer access. Existing auth
   role/permission tables are absent; do not invent or seed an authorization system.

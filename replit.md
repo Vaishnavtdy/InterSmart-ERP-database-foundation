@@ -76,6 +76,11 @@ and sections. UI executable work reuses common tasks through UI task links;
 staffing uses ProjectTeam and UI files reuse MinIO File/ProjectResource metadata.
 Daily UI status is a reporting snapshot, not authoritative task/project progress.
 
+UX versions hold research summaries, screens and ordered flows. UX work uses
+common tasks through UX task links, ProjectTeam UX roles and existing MinIO
+file/resource metadata. Plan UX work with task dates/hierarchy, not UX-specific
+sprints. UX daily completion is a reporting snapshot, not project source of truth.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

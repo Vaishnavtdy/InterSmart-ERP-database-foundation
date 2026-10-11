@@ -2,6 +2,112 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ PROJECT_UX : "UX specification versions"
+  USERS ||--o{ PROJECT_UX : "creates"
+  USERS o|--o{ PROJECT_UX : "approves"
+  PROJECT_UX ||--o{ UX_SCREENS : "defines screens"
+  USERS ||--o{ UX_SCREENS : "creates"
+  PROJECT_UX ||--o{ UX_FLOWS : "defines flows"
+  USERS ||--o{ UX_FLOWS : "creates"
+  UX_FLOWS ||--o{ UX_FLOW_STEPS : "ordered steps"
+  UX_SCREENS o|--o{ UX_FLOW_STEPS : "optional screen"
+  TASKS ||--o{ UX_TASK_LINKS : "common UX work"
+  PROJECT_UX ||--o{ UX_TASK_LINKS : "version context"
+  UX_SCREENS o|--o{ UX_TASK_LINKS : "optional same-version screen"
+  UX_FLOWS o|--o{ UX_TASK_LINKS : "optional same-version flow"
+  PROJECT_UX ||--o{ UX_DAILY_STATUS : "daily reporting"
+  USERS ||--o{ UX_DAILY_STATUS : "reports"
+  PROJECT_UX ||--o{ UX_DESIGN_LINKS : "external design URLs"
+  USERS ||--o{ UX_DESIGN_LINKS : "creates"
+
+  PROJECT_UX {
+    uuid id PK
+    uuid project_id FK
+    int version_number "unique with project_id, positive"
+    string title
+    string description "nullable"
+    UxStatus status
+    string research_summary "nullable"
+    string user_personas "nullable"
+    string user_journey_summary "nullable"
+    uuid created_by_id FK
+    uuid approved_by_id FK "nullable"
+    timestamptz approved_at "nullable, paired with approver"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UX_SCREENS {
+    uuid id PK
+    uuid project_ux_id FK
+    string name
+    string description "nullable"
+    UxScreenType screen_type
+    string route "nullable, nonunique"
+    int sort_order
+    UxScreenStatus status
+    boolean is_required
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UX_FLOWS {
+    uuid id PK
+    uuid project_ux_id FK
+    string name
+    string description "nullable"
+    UxFlowType flow_type
+    UxFlowStatus status
+    int sort_order
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UX_FLOW_STEPS {
+    uuid id PK
+    uuid ux_flow_id FK
+    int step_number "positive, unique within flow"
+    string name
+    string description "nullable"
+    uuid screen_id FK "nullable"
+    string action "nullable"
+    string expected_result "nullable"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UX_TASK_LINKS {
+    uuid id PK
+    uuid task_id FK
+    uuid project_ux_id FK
+    uuid ux_screen_id FK "nullable, same version"
+    uuid ux_flow_id FK "nullable, same version"
+    timestamptz created_at
+  }
+  UX_DAILY_STATUS {
+    uuid id PK
+    uuid project_ux_id FK
+    date status_date "unique with version"
+    UxDailyStatusType status
+    string summary
+    string completed_work "nullable"
+    string planned_work "nullable"
+    string blockers "nullable"
+    int completion_percentage "nullable, 0..100 snapshot"
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UX_DESIGN_LINKS {
+    uuid id PK
+    uuid project_ux_id FK
+    string title
+    string url
+    UxDesignLinkType link_type
+    string description "nullable"
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
   PROJECTS ||--o{ PROJECT_UI : "UI specification versions"
   USERS ||--o{ PROJECT_UI : "creates"
   USERS o|--o{ PROJECT_UI : "approves"
@@ -718,3 +824,14 @@ UI staffing uses ProjectTeam; files reuse existing MinIO File/ProjectResource
 metadata with resourceType UI, without a version-specific attachment model.
 Daily UI status is a reporting snapshot, not authoritative task/project progress.
 All new FKs restrict deletion; page/section statuses share UiPageStatus.
+
+UX uses common tasks (workstream UX) through version-owned ux_task_links.
+At least one screen/flow is required; composite context FKs enforce same-version
+references and partial unique indexes prevent NULL-context duplicates.
+Flow-step numbers are positive/unique within a flow; screen is optional.
+Same-version flow-step screen alignment and task project/workstream policies
+remain service rules. UX staffing/files reuse ProjectTeam and File/ProjectResource
+with UX classification. Task dates/hierarchy support planning without UX sprints.
+Daily reporting is a correctable snapshot, not authoritative project progress.
+UX revisions retain finalized predecessor graphs by future service contract;
+all 17 new FKs restrict deletion but do not freeze historical content.

@@ -1,0 +1,928 @@
+# Step 13 — UX Database Implementation
+
+You are continuing the incremental database implementation for the InterSmart internal ERP.
+
+## Current architecture
+
+The application is for **one organization: InterSmart**.
+
+Important architecture rules:
+
+- Do NOT create an `organizations` table.
+- Do NOT add `organization_id` or `tenant_id`.
+- `users` are internal InterSmart employees.
+- `customers` are external clients and do not authenticate.
+- Use PostgreSQL + Prisma.
+- Use UUID primary keys.
+- Use `DateTime` / PostgreSQL `timestamptz` for timestamps.
+- Use `Decimal` / PostgreSQL numeric types for monetary values.
+- Existing project, team, task, file, budget, payment, UI, and other models must be reused.
+- Do NOT create AWS-specific infrastructure.
+- Do NOT reset the database.
+- Do NOT delete or rewrite existing migrations.
+- Create a new Prisma migration for this step only.
+
+## Previously implemented
+
+The following database modules already exist:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Versions / Items
+6. Projects
+7. Scope / Business Analysis
+8. Project Files / Resources
+9. Project Budget / Budget Transactions
+10. Payments / Payment Requests
+11. Common Task Engine
+12. UI Design & UI Resource Management
+
+You must inspect the current Prisma schema before making changes.
+
+---
+
+# Objective
+
+Implement **Step 13 — UX Design & UX Resource Management**.
+
+UX must support:
+
+- UX work for a project
+- UX versions
+- UX workflow/status
+- UX research/planning information
+- UX screens
+- UX flows
+- UX tasks
+- UX sprint references without creating a separate sprint system
+- UX design/prototype links
+- UX daily status reporting
+- UX resources/files
+- UX team members through the existing `project_team`
+- approval/rework lifecycle
+- tracking UX-related work using the existing `tasks` model
+
+The design must remain extensible for future Development and QA modules.
+
+---
+
+# Important architecture decision
+
+Do NOT create a completely separate task engine for UX.
+
+Reuse:
+
+```text
+tasks
+task_assignments
+task_dependencies
+task_comments
+task_status_history
+```
+
+UX-specific entities should reference the generic task engine where required.
+
+Do NOT create:
+
+```text
+ux_tasks
+ux_team_members
+ux_sprints
+ux_daily_tasks
+```
+
+The existing `project_team` model must be used for UX team membership.
+
+Existing project team roles should be reused:
+
+```text
+UX_TL
+UX_RESOURCE
+```
+
+---
+
+# 1. Create `project_ux`
+
+Create a `project_ux` model representing a UX version/workstream for a project.
+
+Suggested fields:
+
+```text
+id
+project_id
+version_number
+title
+description
+status
+research_summary
+user_personas
+user_journey_summary
+created_by_id
+approved_by_id
+approved_at
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+project -> Project
+created_by -> User
+approved_by -> User
+screens
+flows
+ux_task_links
+daily_statuses
+design_links
+```
+
+### Rules
+
+- `project_id` must reference `projects`.
+- `version_number` must be unique per project.
+- Add a composite unique constraint:
+
+```text
+(project_id, version_number)
+```
+
+- `approved_by_id` is nullable.
+- `approved_at` is nullable.
+- `description`, `research_summary`, `user_personas`, and `user_journey_summary` may be nullable.
+
+Do not store calculated progress on `project_ux`.
+
+---
+
+# 2. UX status enum
+
+Create:
+
+```text
+UxStatus
+```
+
+Values:
+
+```text
+DRAFT
+IN_PROGRESS
+IN_REVIEW
+APPROVED
+REWORK
+COMPLETED
+ON_HOLD
+CANCELLED
+```
+
+Use this for `project_ux.status`.
+
+The status represents the UX workstream/version lifecycle.
+
+---
+
+# 3. Create `ux_screens`
+
+Create a model representing UX screens/wireframes.
+
+Suggested fields:
+
+```text
+id
+project_ux_id
+name
+description
+screen_type
+route
+sort_order
+status
+is_required
+created_by_id
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+project_ux -> ProjectUx
+created_by -> User
+```
+
+### Screen types
+
+Create:
+
+```text
+UxScreenType
+```
+
+Values:
+
+```text
+PUBLIC
+AUTHENTICATION
+DASHBOARD
+ADMIN
+CONTENT
+E_COMMERCE
+FORM
+CHECKOUT
+PROFILE
+SYSTEM
+OTHER
+```
+
+### Screen statuses
+
+Create:
+
+```text
+UxScreenStatus
+```
+
+Values:
+
+```text
+PLANNED
+IN_DESIGN
+IN_REVIEW
+APPROVED
+REWORK
+COMPLETED
+CANCELLED
+```
+
+Do not calculate project progress from this table alone.
+
+The screen records represent UX deliverables.
+
+---
+
+# 4. Create `ux_flows`
+
+Create a model for UX/user flows.
+
+Suggested fields:
+
+```text
+id
+project_ux_id
+name
+description
+flow_type
+status
+sort_order
+created_by_id
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+project_ux -> ProjectUx
+created_by -> User
+steps
+```
+
+### Flow types
+
+Create:
+
+```text
+UxFlowType
+```
+
+Values:
+
+```text
+USER_REGISTRATION
+LOGIN
+ONBOARDING
+PURCHASE
+CHECKOUT
+BOOKING
+CONTACT
+ADMIN
+CONTENT_MANAGEMENT
+PROFILE
+OTHER
+```
+
+### Flow statuses
+
+Use:
+
+```text
+UxFlowStatus
+```
+
+Values:
+
+```text
+DRAFT
+IN_PROGRESS
+IN_REVIEW
+APPROVED
+REWORK
+COMPLETED
+CANCELLED
+```
+
+---
+
+# 5. Create `ux_flow_steps`
+
+Create the individual steps inside a UX flow.
+
+Fields:
+
+```text
+id
+ux_flow_id
+step_number
+name
+description
+screen_id
+action
+expected_result
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+ux_flow -> UxFlow
+screen -> UxScreen
+```
+
+`screen_id` should be nullable because a flow step may initially exist before a screen is created.
+
+Add a unique constraint:
+
+```text
+(ux_flow_id, step_number)
+```
+
+This prevents duplicate step numbers inside the same flow.
+
+---
+
+# 6. Connect UX work to the common task engine
+
+Create:
+
+```text
+ux_task_links
+```
+
+Fields:
+
+```text
+id
+task_id
+project_ux_id
+ux_screen_id
+ux_flow_id
+created_at
+```
+
+Rules:
+
+- `task_id` references existing `tasks`.
+- `project_ux_id` references `project_ux`.
+- `ux_screen_id` is nullable.
+- `ux_flow_id` is nullable.
+- At least one UX context should normally be provided, but do not implement complicated database-level CHECK constraints unless the existing project architecture already uses them.
+- Add appropriate indexes.
+
+This allows:
+
+```text
+Task
+  ↓
+UX workstream
+  ↓
+Screen / Flow
+```
+
+The task itself remains generic.
+
+For UX tasks:
+
+```text
+tasks.workstream = UX
+```
+
+Use existing task types such as:
+
+```text
+DESIGN
+RESEARCH
+REVIEW
+DOCUMENTATION
+MEETING
+OTHER
+```
+
+If `RESEARCH` does not currently exist in the existing `TaskType`, inspect the existing enum and extend it only if necessary.
+
+Do NOT create a new UX-specific task enum unless absolutely required.
+
+---
+
+# 7. UX design/prototype links
+
+Create:
+
+```text
+ux_design_links
+```
+
+Fields:
+
+```text
+id
+project_ux_id
+title
+url
+link_type
+description
+created_by_id
+created_at
+updated_at
+```
+
+Link types:
+
+```text
+FIGMA
+PROTOTYPE
+WIREFRAME
+USER_FLOW
+DESIGN_SYSTEM
+REFERENCE
+OTHER
+```
+
+`url` should be stored as a normal string.
+
+Do not integrate directly with Figma APIs at this stage.
+
+---
+
+# 8. UX daily status
+
+Create:
+
+```text
+ux_daily_status
+```
+
+Fields:
+
+```text
+id
+project_ux_id
+status_date
+status
+summary
+completed_work
+planned_work
+blockers
+completion_percentage
+created_by_id
+created_at
+updated_at
+```
+
+Use a suitable enum for daily status, for example:
+
+```text
+UxDailyStatusType
+```
+
+Values:
+
+```text
+NOT_STARTED
+IN_PROGRESS
+BLOCKED
+COMPLETED
+ON_HOLD
+```
+
+Add:
+
+```text
+unique(project_ux_id, status_date)
+```
+
+Important:
+
+`completion_percentage` is a **reporting snapshot**, not the authoritative project progress.
+
+Do not use it as the source of truth for project completion.
+
+---
+
+# 9. UX resource/file integration
+
+Do NOT create a separate UX file storage system.
+
+Reuse:
+
+```text
+files
+project_resources
+```
+
+UX resources should use the existing file metadata architecture.
+
+If `project_resources.resource_type` already contains `UX`, reuse it.
+
+If `UX` is missing, add it to the existing enum.
+
+Examples:
+
+```text
+UX
+```
+
+Possible UX resources:
+
+- Wireframes
+- UX documentation
+- User research
+- User flows
+- Prototypes
+- UX specifications
+- Reference material
+
+Actual files continue to be stored in MinIO.
+
+PostgreSQL stores only file metadata.
+
+---
+
+# 10. UX team management
+
+Do NOT create:
+
+```text
+ux_team_members
+```
+
+Reuse:
+
+```text
+project_team
+```
+
+UX members should be assigned with:
+
+```text
+project_role = UX_TL
+```
+
+or:
+
+```text
+project_role = UX_RESOURCE
+```
+
+Do not duplicate employee/user information inside UX tables.
+
+---
+
+# 11. Sprint handling
+
+The business requirements mention UX sprints.
+
+However, do NOT create a standalone:
+
+```text
+ux_sprints
+```
+
+table in this step.
+
+The ERP already has a generic task engine.
+
+For now:
+
+- UX sprint planning can be represented through tasks and task dates.
+- `start_date` / `due_date` can represent planned UX work.
+- Parent/child tasks can group UX work.
+- Future sprint functionality can be introduced as a reusable cross-workstream sprint system.
+
+Do not prematurely build a UX-specific sprint engine.
+
+---
+
+# 12. UX approval
+
+Do not create a separate UX approval engine.
+
+For now, `project_ux` supports:
+
+```text
+DRAFT
+IN_REVIEW
+APPROVED
+REWORK
+```
+
+using:
+
+```text
+approved_by_id
+approved_at
+status
+```
+
+Future generic approval workflows can replace/extend this mechanism.
+
+Do not create:
+
+```text
+ux_approvals
+```
+
+in this step.
+
+---
+
+# 13. Indexes
+
+Add indexes for common access patterns.
+
+At minimum consider:
+
+### project_ux
+
+```text
+project_id
+status
+created_by_id
+```
+
+### ux_screens
+
+```text
+project_ux_id
+status
+screen_type
+```
+
+### ux_flows
+
+```text
+project_ux_id
+status
+flow_type
+```
+
+### ux_flow_steps
+
+```text
+ux_flow_id
+screen_id
+```
+
+### ux_task_links
+
+```text
+task_id
+project_ux_id
+ux_screen_id
+ux_flow_id
+```
+
+### ux_daily_status
+
+```text
+project_ux_id
+status_date
+```
+
+### ux_design_links
+
+```text
+project_ux_id
+link_type
+```
+
+Use the existing project/schema naming conventions if they differ.
+
+---
+
+# 14. Referential integrity
+
+Follow the existing Prisma relationship conventions.
+
+Expected behavior:
+
+- A project cannot be deleted while referenced by UX records unless the existing architecture uses soft deletion/cascade.
+- A UX version should not silently disappear when a user is deleted.
+- `created_by_id` should preserve historical ownership.
+- `approved_by_id` should be nullable.
+- UX screens should belong to a UX version.
+- UX flows should belong to a UX version.
+- Flow steps should belong to a flow.
+- UX task links should reference existing tasks.
+
+Use the same `onDelete` conventions already established in the schema.
+
+Do not introduce a completely different relationship strategy.
+
+---
+
+# 15. Prisma schema quality
+
+Before writing the migration:
+
+1. Inspect the existing schema.
+2. Reuse existing enums where appropriate.
+3. Reuse existing User/Project/Task/File/Resource models.
+4. Avoid duplicate concepts.
+5. Follow the existing naming conventions.
+6. Ensure all relations have correct opposite relation fields.
+7. Ensure Prisma schema validation succeeds.
+
+Do not modify unrelated models.
+
+---
+
+# 16. Migration
+
+Create exactly one new Prisma migration for Step 13.
+
+Example:
+
+```bash
+npx prisma migrate dev --name add_ux_management
+```
+
+Do NOT:
+
+```bash
+prisma migrate reset
+```
+
+Do NOT delete existing migrations.
+
+Do NOT manually modify old migrations.
+
+---
+
+# 17. Validation
+
+After migration:
+
+Run the appropriate existing validation commands, including:
+
+```bash
+npx prisma validate
+```
+
+and:
+
+```bash
+npx prisma generate
+```
+
+If the project has existing TypeScript/build/lint commands, run the relevant checks.
+
+Verify:
+
+- Prisma schema validates.
+- Migration succeeds.
+- Prisma client generates.
+- No unrelated schema changes were introduced.
+- Existing models still compile.
+- Existing migrations remain untouched.
+
+---
+
+# 18. Documentation
+
+Update the project's database/architecture documentation if it already exists.
+
+Document:
+
+```text
+Step 13 — UX
+```
+
+Include:
+
+- `project_ux`
+- `ux_screens`
+- `ux_flows`
+- `ux_flow_steps`
+- `ux_task_links`
+- `ux_daily_status`
+- `ux_design_links`
+
+Also document the important architecture decisions:
+
+```text
+UX uses the common task engine.
+UX uses project_team for team assignment.
+UX uses files/project_resources for file management.
+UX does not have a separate sprint engine.
+UX does not have a separate approval engine.
+```
+
+Do not create unnecessary documentation files if the project already has a central database/architecture document.
+
+---
+
+# 19. Final verification checklist
+
+Before stopping, verify:
+
+### UX core
+
+- [ ] `project_ux` exists.
+- [ ] UX versions are supported.
+- [ ] Project/version uniqueness exists.
+- [ ] UX lifecycle statuses exist.
+
+### Screens
+
+- [ ] UX screens exist.
+- [ ] Screen types exist.
+- [ ] Screen statuses exist.
+- [ ] Screens belong to a UX version.
+
+### Flows
+
+- [ ] UX flows exist.
+- [ ] Flow types exist.
+- [ ] Flow statuses exist.
+- [ ] Flow steps exist.
+- [ ] Flow step numbering is unique within a flow.
+- [ ] Flow steps can optionally reference UX screens.
+
+### Tasks
+
+- [ ] Existing generic `tasks` are reused.
+- [ ] UX task links exist.
+- [ ] No `ux_tasks` table was created.
+
+### Team
+
+- [ ] Existing `project_team` is reused.
+- [ ] UX_TL / UX_RESOURCE are used.
+- [ ] No `ux_team_members` table was created.
+
+### Resources
+
+- [ ] Existing `files` are reused.
+- [ ] Existing `project_resources` are reused.
+- [ ] UX resource type exists.
+
+### Reporting
+
+- [ ] UX daily status exists.
+- [ ] One daily status per UX version/date.
+- [ ] Daily completion percentage is treated as a snapshot.
+
+### Architecture
+
+- [ ] No AWS services.
+- [ ] No organizations table.
+- [ ] No organization_id.
+- [ ] No tenant_id.
+- [ ] No separate UX sprint system.
+- [ ] No separate UX approval system.
+- [ ] No duplicate task engine.
+- [ ] No calculated project budget/progress fields added.
+
+---
+
+# STOP CONDITION
+
+After completing Step 13:
+
+1. Show me the files/models you changed.
+2. Show me the migration name.
+3. Show me the final UX-related Prisma models/enums that were added or modified.
+4. Show me validation results.
+5. Mention any existing schema conflict you had to resolve.
+6. Do NOT start Step 14.
+7. Do NOT implement Development.
+8. Do NOT implement QA.
+9. Do NOT implement notifications.
+10. Do NOT implement generic approvals.
+11. Do NOT implement sprints.
+
+**STOP after Step 13 is fully validated.**

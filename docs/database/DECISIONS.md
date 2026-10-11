@@ -764,3 +764,45 @@
 - **Scope and exclusions:** No mandatory page/scope-item FK, designer/uiTL
   column, UI-specific employees, ui_tasks, sprint, frontend, Figma API, notification,
   generic approval, permanent project/UI progress, AWS or workflow engine.
+
+## Step 13 — UX domain foundation
+
+- **Reuse:** TaskType.RESEARCH, TaskWorkstream.UX, ProjectRole.UX_TL/UX_RESOURCE
+  and ProjectResourceType.UX already exist. They remain unchanged. Common
+  task assignments/dependencies/comments/history, project staffing and MinIO
+  metadata are authoritative; no duplicated execution/team/storage subsystem.
+- **Versions:** ProjectUx is unique project/version, with positive versions.
+  Revision creation/retention follows UI: serialize version allocation, INSERT
+  new graphs and retain finalized predecessors. This is a future service rule,
+  not a DB immutability guarantee; drafts edit and unused leaves may delete.
+- **Research:** Nullable narrative TEXT fields for research, personas and
+  journey summaries; no employee/customer/persona authentication duplication.
+- **Enums:** Use the explicitly requested seven UX enums, rather than coupling
+  UX lifecycle evolution to UI enum types. Daily reporting and flows have
+  different status sets from the version lifecycle.
+- **Screens/flows:** Distinct version-owned deliverables. Routes are optional
+  and nonunique. Names can repeat. Nonnegative sort order; required-screen
+  boolean defaults true. No UI-page/scope-item relationship is invented.
+- **Flow steps:** Unique positive number per flow; screen optional. Description,
+  action and expected result are nullable TEXT. Numbers may have gaps, and
+  renumbering is not automatic. Screen existence is enforced; screen/flow
+  same-version alignment is a future service contract, preserving the requested
+  fields without redundant version identity or workflow triggers.
+- **Task links:** Required task/version, optional screen and flow. Because the
+  existing architecture uses simple SQL checks, require at least one concrete
+  screen/flow context. Both are allowed. Composite FKs keep each context in the
+  linked version. Four-column unique plus screen-only/flow-only partial unique
+  indexes cover nullable duplicate cases; different context forms may coexist.
+- **Service boundary:** UX-workstream and same-project task linking are future
+  service checks, including classification/reparenting updates. Existing FKs
+  do not implement authorization, staffing membership or cross-table state sync.
+- **Reporting:** DATE statusDate, unique version/date, required summary and
+  nullable completed/planned work/blockers. Nullable integer snapshot percentage
+  CHECK 0..100 is not authoritative progress. Reports may be corrected.
+- **Approval/retention:** Paired optional approver/time, all 17 FKs RESTRICT,
+  composite context updates NO ACTION. No generic approval engine, automatic
+  status transitions, blanket delete guards or new soft-delete fields.
+- **Deferred scope:** Sprint planning uses existing task dates/hierarchy; no
+  ux_sprints or sprint FK yet. No Development, QA, notifications, Figma API,
+  organization/tenant architecture, AWS, calculated budgets/progress, frontend
+  or API behavior. No new seed data is necessary.

@@ -854,3 +854,110 @@ Design links contain external URLs, not file metadata; URL/scheme safety is
 application validation, with no database HTTP calls or Figma integration.
 No workflow, frontend, API, notifications, sprints, generic approvals, AWS,
 additional status-history tables or seed records are introduced.
+
+## UX Design & UX Resource Management (Database Step 13)
+
+Migration: `20261011075502_add_ux_management`. Seven new tables and seven
+requested UX enums; no old tables, enums or migration files are rewritten.
+
+Project → ProjectUx (version) → Screens / Flows → Flow Steps.
+UX uses the common task engine with workstream UX and existing task types,
+including RESEARCH, DESIGN and REVIEW. Domain associations live in UxTaskLink;
+there is no ux_tasks or separate execution engine.
+
+### Models, fields and defaults
+
+| Model / table | Required fields beyond UUID id and timestamps | Nullable fields |
+| --- | --- | --- |
+| ProjectUx / project_ux | projectId, versionNumber, title, status (DRAFT), createdById | description, researchSummary, userPersonas, userJourneySummary (all TEXT), approvedById, approvedAt |
+| UxScreen / ux_screens | projectUxId, name, screenType (OTHER), sortOrder (0), status (PLANNED), isRequired (true), createdById | description TEXT, route VARCHAR(2048) |
+| UxFlow / ux_flows | projectUxId, name, flowType (OTHER), status (DRAFT), sortOrder (0), createdById | description TEXT |
+| UxFlowStep / ux_flow_steps | uxFlowId, stepNumber, name | description, action, expectedResult (TEXT), screenId |
+| UxTaskLink / ux_task_links | taskId, projectUxId; at least one screen/flow context | uxScreenId, uxFlowId individually |
+| UxDailyStatus / ux_daily_status | projectUxId, statusDate DATE, status (NOT_STARTED), summary TEXT, createdById | completedWork, plannedWork, blockers (TEXT), completionPercentage INTEGER |
+| UxDesignLink / ux_design_links | projectUxId, title, url VARCHAR(2048), linkType (OTHER), createdById | description TEXT |
+
+All IDs/FKs are UUID. Timestamps use TIMESTAMPTZ(6); createdAt defaults to now.
+All except UxTaskLink have Prisma-managed updatedAt; SQL writers supply/update it.
+Names/titles are VARCHAR(255). Personas are narrative TEXT, not a separate user
+or JSON/persona engine. Routes are nullable and nonunique, including within one
+version. Screen names are not unique; distinct deliverables can share labels.
+
+### Enums
+
+- UxStatus: DRAFT, IN_PROGRESS, IN_REVIEW, APPROVED, REWORK, COMPLETED, ON_HOLD, CANCELLED.
+- UxScreenType: PUBLIC, AUTHENTICATION, DASHBOARD, ADMIN, CONTENT, E_COMMERCE,
+  FORM, CHECKOUT, PROFILE, SYSTEM, OTHER.
+- UxScreenStatus: PLANNED, IN_DESIGN, IN_REVIEW, APPROVED, REWORK, COMPLETED, CANCELLED.
+- UxFlowType: USER_REGISTRATION, LOGIN, ONBOARDING, PURCHASE, CHECKOUT, BOOKING,
+  CONTACT, ADMIN, CONTENT_MANAGEMENT, PROFILE, OTHER.
+- UxFlowStatus: DRAFT, IN_PROGRESS, IN_REVIEW, APPROVED, REWORK, COMPLETED, CANCELLED.
+- UxDesignLinkType: FIGMA, PROTOTYPE, WIREFRAME, USER_FLOW, DESIGN_SYSTEM, REFERENCE, OTHER.
+- UxDailyStatusType: NOT_STARTED, IN_PROGRESS, BLOCKED, COMPLETED, ON_HOLD.
+
+These requested UX enums remain separate from UI enums so future UX lifecycle
+changes do not mutate UI. Existing TaskType/TaskWorkstream, ProjectRole and
+ProjectResourceType already support UX; none needed extending.
+
+### Relationships, indexes and checks
+
+ProjectUx references Project, creator User and nullable approver User. Screens
+and flows reference version/creator. Steps reference required Flow and optional
+Screen. Task links reference Task, required version, optional Screen/Flow.
+Daily reports and design links reference version/author.
+All 17 FKs use RESTRICT; composite task-link context updates use NO ACTION.
+
+Project/version is unique with positive versionNumber. Flow/stepNumber is
+unique and stepNumber starts at 1; numbering need not be contiguous. Screen
+and flow sorting is nonnegative. Daily version/date is unique. Percentage is
+nullable unknown, otherwise 0..100. Approval actor/time must be paired.
+
+Composite task-link context FKs enforce each referenced screen/flow belongs to
+the link's UX version. At least one screen or flow is required using a simple
+CHECK, consistent with existing SQL domain checks. Both may be supplied.
+Four-column uniqueness prevents duplicate both-context links; SQL partial
+unique indexes prevent duplicate screen-only and flow-only links.
+The three different context forms may coexist for the same task/version.
+
+Project/version uniqueness covers project lookup; version status/date, created
+date and actor indexes support reporting. Screens/flows index version/sort,
+status, type and creator. Step uniqueness covers flow/order; screenId indexes
+reverse references. Task-link uniqueness covers task lookup, with version,
+screen and flow reverse indexes. Daily uniqueness covers version/date; date and
+creator have indexes. Design links index version/type, date and creator.
+SQL-only checks/partial indexes are retained in the new migration.
+
+### Reuse, retention and future writer boundaries
+
+UX uses project_team for team assignment with UX_TL / UX_RESOURCE.
+UX uses files/project_resources for file management with resourceType UX;
+existing MinIO metadata and exact physical-revision references are unchanged.
+File resources remain project-scoped, not automatically tied to a UX version.
+Design/prototype URLs are normal strings in UxDesignLink, with future
+application URL/scheme validation. No Figma API or storage duplication.
+
+UX does not have a separate sprint engine: common task startDate/dueDate and
+parent/child groups represent planned work. No sprint table/reference column is
+invented before a reusable cross-workstream sprint model exists.
+UX does not have a separate approval engine: lifecycle status and paired
+approver/time are metadata, not automatic approval transitions.
+
+Revision writers must serialize per project, create a new ProjectUx graph,
+and retain finalized predecessor screens/flows/steps, reports and task links.
+Drafts may edit; RESTRICT prevents cascades but does not freeze historical
+content or ban deleting unused leaf records. Finalized-version authorization
+and retention remain future service contracts, matching the UI foundation.
+No current-version flag or automatic version cloning is introduced.
+
+Future services must require tasks.workstream UX and same-project task/version
+ownership, and revalidate when either endpoint moves or changes classification.
+Flow-step screen existence is an FK guarantee; same-version flow/screen
+alignment remains service validation because steps retain the requested
+simple field shape without a redundant projectUxId or validation triggers.
+No branching graph, transition scheduler or contiguous renumbering engine.
+
+Daily completion is a reporting snapshot, not authoritative project progress;
+NULL is unknown and does not become zero. Reports are correctable via updatedAt,
+not immutable audit history. No calculated budget/progress columns, organization
+or tenant fields, Development, QA, notifications, AWS, APIs/frontend, generic
+approvals or seed records are added.

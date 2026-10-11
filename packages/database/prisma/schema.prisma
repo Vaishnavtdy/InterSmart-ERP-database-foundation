@@ -102,6 +102,12 @@ model User {
   createdUiSections           UiSection[]
   uiDailyStatuses             UiDailyStatus[]
   createdUiDesignLinks        UiDesignLink[]
+  createdProjectUxs           ProjectUx[]                   @relation("UxCreator")
+  approvedProjectUxs          ProjectUx[]                   @relation("UxApprover")
+  createdUxScreens            UxScreen[]
+  createdUxFlows              UxFlow[]
+  uxDailyStatuses             UxDailyStatus[]
+  createdUxDesignLinks        UxDesignLink[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -501,6 +507,7 @@ model Project {
   payments             Payment[]
   tasks                Task[]
   uiSpecifications     ProjectUi[]
+  uxSpecifications     ProjectUx[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -1121,6 +1128,7 @@ model Task {
   statusHistory  TaskStatusHistory[]
   assignments    TaskAssignment[]
   uiLinks        UiTaskLink[]
+  uxLinks        UxTaskLink[]
 
   // Composite target key keeps children in their parent's project.
   @@unique([projectId, id])
@@ -1392,4 +1400,244 @@ model UiDesignLink {
   @@index([createdAt])
   @@index([createdById])
   @@map("ui_design_links")
+}
+
+enum UxStatus {
+  DRAFT
+  IN_PROGRESS
+  IN_REVIEW
+  APPROVED
+  REWORK
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum UxScreenType {
+  PUBLIC
+  AUTHENTICATION
+  DASHBOARD
+  ADMIN
+  CONTENT
+  E_COMMERCE
+  FORM
+  CHECKOUT
+  PROFILE
+  SYSTEM
+  OTHER
+}
+
+enum UxScreenStatus {
+  PLANNED
+  IN_DESIGN
+  IN_REVIEW
+  APPROVED
+  REWORK
+  COMPLETED
+  CANCELLED
+}
+
+enum UxFlowType {
+  USER_REGISTRATION
+  LOGIN
+  ONBOARDING
+  PURCHASE
+  CHECKOUT
+  BOOKING
+  CONTACT
+  ADMIN
+  CONTENT_MANAGEMENT
+  PROFILE
+  OTHER
+}
+
+enum UxFlowStatus {
+  DRAFT
+  IN_PROGRESS
+  IN_REVIEW
+  APPROVED
+  REWORK
+  COMPLETED
+  CANCELLED
+}
+
+enum UxDesignLinkType {
+  FIGMA
+  PROTOTYPE
+  WIREFRAME
+  USER_FLOW
+  DESIGN_SYSTEM
+  REFERENCE
+  OTHER
+}
+
+enum UxDailyStatusType {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  ON_HOLD
+}
+
+model ProjectUx {
+  id                 String          @id @default(uuid()) @db.Uuid
+  projectId          String          @map("project_id") @db.Uuid
+  versionNumber      Int             @map("version_number")
+  title              String          @db.VarChar(255)
+  description        String?         @db.Text
+  status             UxStatus        @default(DRAFT)
+  researchSummary    String?         @map("research_summary") @db.Text
+  userPersonas       String?         @map("user_personas") @db.Text
+  userJourneySummary String?         @map("user_journey_summary") @db.Text
+  createdById        String          @map("created_by_id") @db.Uuid
+  approvedById       String?         @map("approved_by_id") @db.Uuid
+  approvedAt         DateTime?       @map("approved_at") @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project            Project         @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy          User            @relation("UxCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy         User?           @relation("UxApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  screens            UxScreen[]
+  flows              UxFlow[]
+  taskLinks          UxTaskLink[]
+  dailyStatuses      UxDailyStatus[]
+  designLinks        UxDesignLink[]
+
+  @@unique([projectId, versionNumber])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([approvedById])
+  @@map("project_ux")
+}
+
+model UxScreen {
+  id          String         @id @default(uuid()) @db.Uuid
+  projectUxId String         @map("project_ux_id") @db.Uuid
+  name        String         @db.VarChar(255)
+  description String?        @db.Text
+  screenType  UxScreenType   @default(OTHER) @map("screen_type")
+  route       String?        @db.VarChar(2048)
+  sortOrder   Int            @default(0) @map("sort_order")
+  status      UxScreenStatus @default(PLANNED)
+  isRequired  Boolean        @default(true) @map("is_required")
+  createdById String         @map("created_by_id") @db.Uuid
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectUx   ProjectUx      @relation(fields: [projectUxId], references: [id], onDelete: Restrict)
+  createdBy   User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  flowSteps   UxFlowStep[]
+  taskLinks   UxTaskLink[]
+
+  @@unique([projectUxId, id])
+  @@index([projectUxId, sortOrder])
+  @@index([status])
+  @@index([screenType])
+  @@index([createdById])
+  @@map("ux_screens")
+}
+
+model UxFlow {
+  id          String       @id @default(uuid()) @db.Uuid
+  projectUxId String       @map("project_ux_id") @db.Uuid
+  name        String       @db.VarChar(255)
+  description String?      @db.Text
+  flowType    UxFlowType   @default(OTHER) @map("flow_type")
+  status      UxFlowStatus @default(DRAFT)
+  sortOrder   Int          @default(0) @map("sort_order")
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectUx   ProjectUx    @relation(fields: [projectUxId], references: [id], onDelete: Restrict)
+  createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  steps       UxFlowStep[]
+  taskLinks   UxTaskLink[]
+
+  @@unique([projectUxId, id])
+  @@index([projectUxId, sortOrder])
+  @@index([status])
+  @@index([flowType])
+  @@index([createdById])
+  @@map("ux_flows")
+}
+
+model UxFlowStep {
+  id             String    @id @default(uuid()) @db.Uuid
+  uxFlowId       String    @map("ux_flow_id") @db.Uuid
+  stepNumber     Int       @map("step_number")
+  name           String    @db.VarChar(255)
+  description    String?   @db.Text
+  screenId       String?   @map("screen_id") @db.Uuid
+  action         String?   @db.Text
+  expectedResult String?   @map("expected_result") @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  flow           UxFlow    @relation(fields: [uxFlowId], references: [id], onDelete: Restrict)
+  screen         UxScreen? @relation(fields: [screenId], references: [id], onDelete: Restrict)
+
+  @@unique([uxFlowId, stepNumber])
+  @@index([screenId])
+  @@map("ux_flow_steps")
+}
+
+model UxTaskLink {
+  id          String    @id @default(uuid()) @db.Uuid
+  taskId      String    @map("task_id") @db.Uuid
+  projectUxId String    @map("project_ux_id") @db.Uuid
+  uxScreenId  String?   @map("ux_screen_id") @db.Uuid
+  uxFlowId    String?   @map("ux_flow_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  projectUx   ProjectUx @relation(fields: [projectUxId], references: [id], onDelete: Restrict)
+  screen      UxScreen? @relation(fields: [projectUxId, uxScreenId], references: [projectUxId, id], onDelete: Restrict, onUpdate: NoAction)
+  flow        UxFlow?   @relation(fields: [projectUxId, uxFlowId], references: [projectUxId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  // SQL partial indexes cover duplicates when one context is NULL.
+  // A SQL CHECK requires at least one screen or flow context.
+  @@unique([taskId, projectUxId, uxScreenId, uxFlowId])
+  @@index([projectUxId])
+  @@index([uxScreenId])
+  @@index([uxFlowId])
+  @@map("ux_task_links")
+}
+
+model UxDailyStatus {
+  id                   String            @id @default(uuid()) @db.Uuid
+  projectUxId          String            @map("project_ux_id") @db.Uuid
+  statusDate           DateTime          @map("status_date") @db.Date
+  status               UxDailyStatusType @default(NOT_STARTED)
+  summary              String            @db.Text
+  completedWork        String?           @map("completed_work") @db.Text
+  plannedWork          String?           @map("planned_work") @db.Text
+  blockers             String?           @db.Text
+  completionPercentage Int?              @map("completion_percentage")
+  createdById          String            @map("created_by_id") @db.Uuid
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectUx            ProjectUx         @relation(fields: [projectUxId], references: [id], onDelete: Restrict)
+  createdBy            User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([projectUxId, statusDate])
+  @@index([statusDate])
+  @@index([createdById])
+  @@map("ux_daily_status")
+}
+
+model UxDesignLink {
+  id          String           @id @default(uuid()) @db.Uuid
+  projectUxId String           @map("project_ux_id") @db.Uuid
+  title       String           @db.VarChar(255)
+  url         String           @db.VarChar(2048)
+  linkType    UxDesignLinkType @default(OTHER) @map("link_type")
+  description String?          @db.Text
+  createdById String           @map("created_by_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectUx   ProjectUx        @relation(fields: [projectUxId], references: [id], onDelete: Restrict)
+  createdBy   User             @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([projectUxId, linkType])
+  @@index([createdAt])
+  @@index([createdById])
+  @@map("ux_design_links")
 }

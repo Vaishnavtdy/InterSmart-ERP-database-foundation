@@ -108,6 +108,13 @@ model User {
   createdUxFlows              UxFlow[]
   uxDailyStatuses             UxDailyStatus[]
   createdUxDesignLinks        UxDesignLink[]
+  createdSprints              Sprint[]
+  createdDevelopmentVersions  ProjectDevelopment[]          @relation("DevelopmentCreator")
+  approvedDevelopmentVersions ProjectDevelopment[]          @relation("DevelopmentApprover")
+  createdDevelopmentModules   DevelopmentModule[]
+  createdRepositories         DevelopmentRepository[]
+  performedDeployments        DevelopmentDeployment[]
+  developmentDailyReports     DevelopmentDailyReport[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -508,6 +515,8 @@ model Project {
   tasks                Task[]
   uiSpecifications     ProjectUi[]
   uxSpecifications     ProjectUx[]
+  sprints              Sprint[]
+  developmentVersions  ProjectDevelopment[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -1096,44 +1105,48 @@ enum TaskDependencyType {
 }
 
 model Task {
-  id             String              @id @default(uuid()) @db.Uuid
-  projectId      String              @map("project_id") @db.Uuid
-  parentTaskId   String?             @map("parent_task_id") @db.Uuid
-  taskCode       String              @unique @map("task_code") @db.VarChar(32)
-  title          String              @db.VarChar(255)
-  description    String?             @db.Text
-  taskType       TaskType            @default(GENERAL) @map("task_type")
-  workstream     TaskWorkstream      @default(OTHER)
-  status         TaskStatus          @default(TODO)
-  priority       ProjectPriority     @default(MEDIUM)
-  createdById    String              @map("created_by_id") @db.Uuid
-  assignedToId   String?             @map("assigned_to_id") @db.Uuid
-  startDate      DateTime?           @map("start_date") @db.Timestamptz(6)
-  dueDate        DateTime?           @map("due_date") @db.Timestamptz(6)
-  completedAt    DateTime?           @map("completed_at") @db.Timestamptz(6)
-  estimatedHours Decimal?            @map("estimated_hours") @db.Decimal(10, 2)
-  actualHours    Decimal?            @map("actual_hours") @db.Decimal(10, 2)
-  sortOrder      Int                 @default(0) @map("sort_order")
-  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt      DateTime?           @map("deleted_at") @db.Timestamptz(6)
-  project        Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  parentTask     Task?               @relation("TaskHierarchy", fields: [projectId, parentTaskId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
-  childTasks     Task[]              @relation("TaskHierarchy")
-  createdBy      User                @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  assignedTo     User?               @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
-  dependencies   TaskDependency[]    @relation("TaskDependencyOwner")
-  dependentTasks TaskDependency[]    @relation("TaskDependencyTarget")
-  comments       TaskComment[]
-  statusHistory  TaskStatusHistory[]
-  assignments    TaskAssignment[]
-  uiLinks        UiTaskLink[]
-  uxLinks        UxTaskLink[]
+  id               String                @id @default(uuid()) @db.Uuid
+  projectId        String                @map("project_id") @db.Uuid
+  sprintId         String?               @map("sprint_id") @db.Uuid
+  parentTaskId     String?               @map("parent_task_id") @db.Uuid
+  taskCode         String                @unique @map("task_code") @db.VarChar(32)
+  title            String                @db.VarChar(255)
+  description      String?               @db.Text
+  taskType         TaskType              @default(GENERAL) @map("task_type")
+  workstream       TaskWorkstream        @default(OTHER)
+  status           TaskStatus            @default(TODO)
+  priority         ProjectPriority       @default(MEDIUM)
+  createdById      String                @map("created_by_id") @db.Uuid
+  assignedToId     String?               @map("assigned_to_id") @db.Uuid
+  startDate        DateTime?             @map("start_date") @db.Timestamptz(6)
+  dueDate          DateTime?             @map("due_date") @db.Timestamptz(6)
+  completedAt      DateTime?             @map("completed_at") @db.Timestamptz(6)
+  estimatedHours   Decimal?              @map("estimated_hours") @db.Decimal(10, 2)
+  actualHours      Decimal?              @map("actual_hours") @db.Decimal(10, 2)
+  sortOrder        Int                   @default(0) @map("sort_order")
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  project          Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  sprint           Sprint?               @relation(fields: [projectId, sprintId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  parentTask       Task?                 @relation("TaskHierarchy", fields: [projectId, parentTaskId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  childTasks       Task[]                @relation("TaskHierarchy")
+  createdBy        User                  @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo       User?                 @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  dependencies     TaskDependency[]      @relation("TaskDependencyOwner")
+  dependentTasks   TaskDependency[]      @relation("TaskDependencyTarget")
+  comments         TaskComment[]
+  statusHistory    TaskStatusHistory[]
+  assignments      TaskAssignment[]
+  uiLinks          UiTaskLink[]
+  uxLinks          UxTaskLink[]
+  developmentLinks DevelopmentTaskLink[]
 
   // Composite target key keeps children in their parent's project.
   @@unique([projectId, id])
   @@index([projectId, status])
   @@index([parentTaskId])
+  @@index([sprintId])
   @@index([assignedToId, status])
   @@index([createdById])
   @@index([status, deletedAt])
@@ -1640,4 +1653,288 @@ model UxDesignLink {
   @@index([createdAt])
   @@index([createdById])
   @@map("ux_design_links")
+}
+
+enum SprintStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum DevelopmentStatus {
+  DRAFT
+  PLANNING
+  IN_PROGRESS
+  IN_REVIEW
+  READY_FOR_QA
+  REWORK
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum DevelopmentModuleType {
+  FEATURE
+  MODULE
+  API
+  INTEGRATION
+  DATABASE
+  AUTHENTICATION
+  ADMIN
+  FRONTEND
+  BACKEND
+  OTHER
+}
+
+enum DevelopmentModuleStatus {
+  PLANNED
+  IN_PROGRESS
+  IN_REVIEW
+  COMPLETED
+  BLOCKED
+  REWORK
+  CANCELLED
+}
+
+enum RepositoryProvider {
+  GITHUB
+  GITLAB
+  BITBUCKET
+  OTHER
+}
+
+enum RepositoryType {
+  FRONTEND
+  BACKEND
+  MOBILE
+  INFRASTRUCTURE
+  MONOREPO
+  OTHER
+}
+
+enum DevelopmentEnvironmentType {
+  LOCAL
+  DEVELOPMENT
+  STAGING
+  UAT
+  PRODUCTION
+  OTHER
+}
+
+enum DeploymentStatus {
+  PENDING
+  IN_PROGRESS
+  SUCCESS
+  FAILED
+  ROLLED_BACK
+  CANCELLED
+}
+
+enum DevelopmentDailyStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  READY_FOR_QA
+  COMPLETED
+  ON_HOLD
+}
+
+model Sprint {
+  id                   String              @id @default(uuid()) @db.Uuid
+  projectId            String              @map("project_id") @db.Uuid
+  projectDevelopmentId String?             @map("project_development_id") @db.Uuid
+  name                 String              @db.VarChar(255)
+  code                 String              @db.VarChar(64)
+  workstream           TaskWorkstream
+  goal                 String?             @db.Text
+  description          String?             @db.Text
+  status               SprintStatus        @default(PLANNED)
+  startDate            DateTime?           @map("start_date") @db.Timestamptz(6)
+  endDate              DateTime?           @map("end_date") @db.Timestamptz(6)
+  createdById          String              @map("created_by_id") @db.Uuid
+  completedAt          DateTime?           @map("completed_at") @db.Timestamptz(6)
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project              Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy            User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  projectDevelopment   ProjectDevelopment? @relation(fields: [projectId, projectDevelopmentId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  tasks                Task[]
+
+  @@unique([projectId, code])
+  @@unique([projectId, id])
+  @@index([projectDevelopmentId])
+  @@index([workstream])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([createdById])
+  @@map("sprints")
+}
+
+model ProjectDevelopment {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  projectId          String                   @map("project_id") @db.Uuid
+  versionNumber      Int                      @map("version_number")
+  title              String                   @db.VarChar(255)
+  description        String?                  @db.Text
+  status             DevelopmentStatus        @default(DRAFT)
+  developmentSummary String?                  @map("development_summary") @db.Text
+  technicalNotes     String?                  @map("technical_notes") @db.Text
+  createdById        String                   @map("created_by_id") @db.Uuid
+  approvedById       String?                  @map("approved_by_id") @db.Uuid
+  approvedAt         DateTime?                @map("approved_at") @db.Timestamptz(6)
+  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project            Project                  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy          User                     @relation("DevelopmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy         User?                    @relation("DevelopmentApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  sprints            Sprint[]
+  modules            DevelopmentModule[]
+  repositories       DevelopmentRepository[]
+  environments       DevelopmentEnvironment[]
+  deployments        DevelopmentDeployment[]
+  taskLinks          DevelopmentTaskLink[]
+  dailyStatuses      DevelopmentDailyReport[]
+
+  @@unique([projectId, versionNumber])
+  @@unique([projectId, id])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([approvedById])
+  @@map("project_development")
+}
+
+model DevelopmentModule {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  projectDevelopmentId String                  @map("project_development_id") @db.Uuid
+  name                 String                  @db.VarChar(255)
+  code                 String                  @db.VarChar(64)
+  description          String?                 @db.Text
+  moduleType           DevelopmentModuleType   @default(OTHER) @map("module_type")
+  status               DevelopmentModuleStatus @default(PLANNED)
+  priority             ProjectPriority         @default(MEDIUM)
+  sortOrder            Int                     @default(0) @map("sort_order")
+  createdById          String                  @map("created_by_id") @db.Uuid
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectDevelopment   ProjectDevelopment      @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
+  createdBy            User                    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  taskLinks            DevelopmentTaskLink[]
+
+  @@unique([projectDevelopmentId, code])
+  @@unique([projectDevelopmentId, id])
+  @@index([projectDevelopmentId, sortOrder])
+  @@index([status])
+  @@index([moduleType])
+  @@index([priority])
+  @@index([createdById])
+  @@map("development_modules")
+}
+
+model DevelopmentTaskLink {
+  id                   String             @id @default(uuid()) @db.Uuid
+  taskId               String             @map("task_id") @db.Uuid
+  projectDevelopmentId String             @map("project_development_id") @db.Uuid
+  developmentModuleId  String?            @map("development_module_id") @db.Uuid
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  task                 Task               @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  projectDevelopment   ProjectDevelopment @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
+  module               DevelopmentModule? @relation(fields: [projectDevelopmentId, developmentModuleId], references: [projectDevelopmentId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  // A SQL partial unique index prevents duplicate version-only links.
+  @@unique([taskId, projectDevelopmentId, developmentModuleId])
+  @@index([projectDevelopmentId])
+  @@index([developmentModuleId])
+  @@map("development_task_links")
+}
+
+model DevelopmentRepository {
+  id                   String             @id @default(uuid()) @db.Uuid
+  projectDevelopmentId String             @map("project_development_id") @db.Uuid
+  name                 String             @db.VarChar(255)
+  repositoryUrl        String             @map("repository_url") @db.VarChar(2048)
+  provider             RepositoryProvider @default(OTHER)
+  repositoryType       RepositoryType     @default(OTHER) @map("repository_type")
+  defaultBranch        String?            @map("default_branch") @db.VarChar(255)
+  description          String?            @db.Text
+  isActive             Boolean            @default(true) @map("is_active")
+  createdById          String             @map("created_by_id") @db.Uuid
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectDevelopment   ProjectDevelopment @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
+  createdBy            User               @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([projectDevelopmentId, isActive])
+  @@index([provider])
+  @@index([createdById])
+  @@map("development_repositories")
+}
+
+model DevelopmentEnvironment {
+  id                   String                     @id @default(uuid()) @db.Uuid
+  projectDevelopmentId String                     @map("project_development_id") @db.Uuid
+  name                 String                     @db.VarChar(255)
+  environmentType      DevelopmentEnvironmentType @default(OTHER) @map("environment_type")
+  baseUrl              String?                    @map("base_url") @db.VarChar(2048)
+  description          String?                    @db.Text
+  isActive             Boolean                    @default(true) @map("is_active")
+  createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectDevelopment   ProjectDevelopment         @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
+  deployments          DevelopmentDeployment[]
+
+  @@unique([projectDevelopmentId, id])
+  @@index([projectDevelopmentId, isActive])
+  @@index([environmentType])
+  @@map("development_environments")
+}
+
+model DevelopmentDeployment {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  projectDevelopmentId String                 @map("project_development_id") @db.Uuid
+  environmentId        String                 @map("environment_id") @db.Uuid
+  deployedById         String                 @map("deployed_by_id") @db.Uuid
+  version              String                 @db.VarChar(100)
+  commitHash           String?                @map("commit_hash") @db.VarChar(128)
+  deploymentStatus     DeploymentStatus       @default(PENDING) @map("deployment_status")
+  deploymentUrl        String?                @map("deployment_url") @db.VarChar(2048)
+  notes                String?                @db.Text
+  deployedAt           DateTime?              @map("deployed_at") @db.Timestamptz(6)
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectDevelopment   ProjectDevelopment     @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
+  environment          DevelopmentEnvironment @relation(fields: [projectDevelopmentId, environmentId], references: [projectDevelopmentId, id], onDelete: Restrict, onUpdate: NoAction)
+  deployedBy           User                   @relation(fields: [deployedById], references: [id], onDelete: Restrict)
+
+  @@index([projectDevelopmentId])
+  @@index([environmentId])
+  @@index([deploymentStatus])
+  @@index([deployedAt])
+  @@index([deployedById])
+  @@map("development_deployments")
+}
+
+model DevelopmentDailyReport {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  projectDevelopmentId String                 @map("project_development_id") @db.Uuid
+  statusDate           DateTime               @map("status_date") @db.Date
+  status               DevelopmentDailyStatus @default(NOT_STARTED)
+  summary              String                 @db.Text
+  completedWork        String?                @map("completed_work") @db.Text
+  plannedWork          String?                @map("planned_work") @db.Text
+  blockers             String?                @db.Text
+  risks                String?                @db.Text
+  completionPercentage Int?                   @map("completion_percentage")
+  createdById          String                 @map("created_by_id") @db.Uuid
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectDevelopment   ProjectDevelopment     @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
+  createdBy            User                   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([projectDevelopmentId, statusDate])
+  @@index([statusDate])
+  @@index([createdById])
+  @@map("development_daily_status")
 }

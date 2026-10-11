@@ -2,6 +2,135 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ SPRINTS : "reusable workstream planning"
+  USERS ||--o{ SPRINTS : "creates"
+  PROJECT_DEVELOPMENT o|--o{ SPRINTS : "optional same-project version"
+  SPRINTS o|--o{ TASKS : "optional same-project membership"
+  PROJECTS ||--o{ PROJECT_DEVELOPMENT : "Development versions"
+  USERS ||--o{ PROJECT_DEVELOPMENT : "creates"
+  USERS o|--o{ PROJECT_DEVELOPMENT : "approves"
+  PROJECT_DEVELOPMENT ||--o{ DEVELOPMENT_MODULES : "modules and features"
+  USERS ||--o{ DEVELOPMENT_MODULES : "creates"
+  TASKS ||--o{ DEVELOPMENT_TASK_LINKS : "common Development work"
+  PROJECT_DEVELOPMENT ||--o{ DEVELOPMENT_TASK_LINKS : "version context"
+  DEVELOPMENT_MODULES o|--o{ DEVELOPMENT_TASK_LINKS : "optional same-version module"
+  PROJECT_DEVELOPMENT ||--o{ DEVELOPMENT_REPOSITORIES : "repository metadata"
+  USERS ||--o{ DEVELOPMENT_REPOSITORIES : "creates"
+  PROJECT_DEVELOPMENT ||--o{ DEVELOPMENT_ENVIRONMENTS : "environment metadata"
+  PROJECT_DEVELOPMENT ||--o{ DEVELOPMENT_DEPLOYMENTS : "deployment attempts"
+  DEVELOPMENT_ENVIRONMENTS ||--o{ DEVELOPMENT_DEPLOYMENTS : "same-version environment"
+  USERS ||--o{ DEVELOPMENT_DEPLOYMENTS : "deployed by"
+  PROJECT_DEVELOPMENT ||--o{ DEVELOPMENT_DAILY_STATUS : "daily reporting"
+  USERS ||--o{ DEVELOPMENT_DAILY_STATUS : "reports"
+
+  SPRINTS {
+    uuid id PK
+    uuid project_id FK
+    uuid project_development_id FK "nullable, DEVELOPMENT context only"
+    string name
+    string code "unique with project_id"
+    TaskWorkstream workstream
+    string goal "nullable"
+    string description "nullable"
+    SprintStatus status
+    timestamptz start_date "nullable"
+    timestamptz end_date "nullable, not before start"
+    uuid created_by_id FK
+    timestamptz completed_at "nullable"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  PROJECT_DEVELOPMENT {
+    uuid id PK
+    uuid project_id FK
+    int version_number "positive, unique with project_id"
+    string title
+    string description "nullable"
+    DevelopmentStatus status
+    string development_summary "nullable"
+    string technical_notes "nullable"
+    uuid created_by_id FK
+    uuid approved_by_id FK "nullable"
+    timestamptz approved_at "nullable, paired with actor"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  DEVELOPMENT_MODULES {
+    uuid id PK
+    uuid project_development_id FK
+    string name
+    string code "unique within Development version"
+    string description "nullable"
+    DevelopmentModuleType module_type
+    DevelopmentModuleStatus status
+    ProjectPriority priority
+    int sort_order
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  DEVELOPMENT_TASK_LINKS {
+    uuid id PK
+    uuid task_id FK
+    uuid project_development_id FK
+    uuid development_module_id FK "nullable, same version"
+    timestamptz created_at
+  }
+  DEVELOPMENT_REPOSITORIES {
+    uuid id PK
+    uuid project_development_id FK
+    string name
+    string repository_url
+    RepositoryProvider provider
+    RepositoryType repository_type
+    string default_branch "nullable"
+    string description "nullable"
+    boolean is_active
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  DEVELOPMENT_ENVIRONMENTS {
+    uuid id PK
+    uuid project_development_id FK
+    string name
+    DevelopmentEnvironmentType environment_type
+    string base_url "nullable"
+    string description "nullable"
+    boolean is_active
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  DEVELOPMENT_DEPLOYMENTS {
+    uuid id PK
+    uuid project_development_id FK
+    uuid environment_id FK "same Development version"
+    uuid deployed_by_id FK
+    string version
+    string commit_hash "nullable"
+    DeploymentStatus deployment_status
+    string deployment_url "nullable"
+    string notes "nullable"
+    timestamptz deployed_at "nullable"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  DEVELOPMENT_DAILY_STATUS {
+    uuid id PK
+    uuid project_development_id FK
+    date status_date "unique with version"
+    DevelopmentDailyStatus status
+    string summary
+    string completed_work "nullable"
+    string planned_work "nullable"
+    string blockers "nullable"
+    string risks "nullable"
+    int completion_percentage "nullable, 0..100 snapshot"
+    uuid created_by_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
   PROJECTS ||--o{ PROJECT_UX : "UX specification versions"
   USERS ||--o{ PROJECT_UX : "creates"
   USERS o|--o{ PROJECT_UX : "approves"
@@ -212,6 +341,7 @@ erDiagram
   TASKS {
     uuid id PK
     uuid project_id FK
+    uuid sprint_id FK "nullable, same project"
     uuid parent_task_id FK "nullable, same project"
     string task_code UK
     string title
@@ -835,3 +965,14 @@ with UX classification. Task dates/hierarchy support planning without UX sprints
 Daily reporting is a correctable snapshot, not authoritative project progress.
 UX revisions retain finalized predecessor graphs by future service contract;
 all 17 new FKs restrict deletion but do not freeze historical content.
+
+Development uses generic tasks, dependencies, history, teams and MinIO metadata.
+Sprint is reusable by Project/workstream, optionally version-scoped for DEVELOPMENT.
+Task.sprint_id remains nullable; composite FK ensures same-project membership.
+Task/sprint workstream alignment and lifecycle/move policy remain service rules.
+Development modules and deployment environments are version-owned, with composite
+FKs preventing mismatched module links/environment attribution. All 20 new FKs
+restrict deletion. Deployment attempts store metadata only, not CI/CD events or
+secrets. Daily percentage is a correctable snapshot, not authoritative progress.
+The report Prisma model is DevelopmentDailyReport, avoiding the requested enum
+name collision. Version/deployment-attempt retention remains a service contract.

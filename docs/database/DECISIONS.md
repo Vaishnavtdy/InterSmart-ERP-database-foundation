@@ -806,3 +806,46 @@
   ux_sprints or sprint FK yet. No Development, QA, notifications, Figma API,
   organization/tenant architecture, AWS, calculated budgets/progress, frontend
   or API behavior. No new seed data is necessary.
+
+## Step 14 — Development and reusable sprints
+
+- **Task reuse:** Nullable Task.sprintId is the only new scalar in an existing
+  table. Composite project/sprint FK prevents cross-project membership; existing
+  records remain valid. Domain-specific modules link through DevelopmentTaskLink,
+  not Task scalar fields. Existing task types/workstream/history are unchanged.
+- **Sprint reuse:** Project/workstream are authoritative; TaskWorkstream reused,
+  code unique per project, nullable planning/completion dates and simple date
+  ordering. Optional projectDevelopmentId supports the recommended version
+  inverse relationship without requiring a Development version. Composite FK
+  enforces same project and a row CHECK permits this context only for DEVELOPMENT.
+  Other workstreams and versionless Development sprints remain structurally valid.
+- **Sprint policy:** Task and sprint lifecycle are independent. Workstream
+  alignment, permitted task moves, membership audit, active-sprint limits and
+  matching Development task-link/version are future service responsibilities.
+  No automatic task completion, release logic or scheduling triggers.
+- **Version/module identity:** Positive, unique project/version; module code
+  unique within version and priority reuses ProjectPriority. Version retention
+  is a future service contract matching UI/UX; no isCurrent or clone engine.
+- **Task link ownership:** Composite version/module FK, optional module,
+  triple uniqueness and partial version-only uniqueness. Version-only and
+  different module contexts can coexist. DEVELOPMENT-workstream and Project
+  alignment require services to validate writes AND later ownership edits.
+- **Metadata:** Repository URL required, optional branch/description; environment
+  base URL optional. No provider integrations, credentials or secret fields.
+  Freeform metadata still needs application redaction/credential-URL rejection.
+  Repo URLs, environment names/types and deployment version labels are nonunique.
+- **Deployment attempts:** Required version label, environment and actor; commit,
+  deployedAt and deployment URL nullable for PENDING. Environment must belong to
+  the same version. Records are mutable attempt metadata, not an immutable event
+  ledger. Future services preserve attempt identity and record retries separately.
+- **Reporting/name conflict:** Model DevelopmentDailyReport maps to requested
+  development_daily_status, avoiding a model/enum collision with requested
+  DevelopmentDailyStatus. DATE unique by version/date, required summary, nullable
+  narrative/risks and 0..100 integer snapshot. This is not authoritative progress.
+- **Retention:** All 20 new FKs RESTRICT deletion, composite updates NO ACTION.
+  Approval actor/time paired. User/project soft deletion preserves attribution.
+  No blanket immutable/deletion guard, generic approval or lifecycle engine.
+- **Scope:** Reuse ProjectTeam DEV_TL/DEV_RESOURCE and File/ProjectResource
+  DEVELOPMENT classification. No dev_tasks, dev_sprints, new team/storage engine,
+  QA/bug module, notification, time tracking, AWS, CI/CD, frontend, API, tenant,
+  calculated budget/progress or seed records.

@@ -961,3 +961,139 @@ NULL is unknown and does not become zero. Reports are correctable via updatedAt,
 not immutable audit history. No calculated budget/progress columns, organization
 or tenant fields, Development, QA, notifications, AWS, APIs/frontend, generic
 approvals or seed records are added.
+
+## Development Management (Database Step 14)
+
+Migration: `20261011081320_add_development_management`. Eight tables and nine
+enums are new. Existing Task receives only nullable sprintId plus its relation,
+index and inverse development links. Other existing models receive inverse
+Prisma relationships only; old migration files and existing data are retained.
+
+Development uses the common task engine, project_team DEV_TL / DEV_RESOURCE,
+a reusable generic sprint model and files/project_resources for documents.
+ResourceType DEVELOPMENT and suitable TaskTypes already exist unchanged.
+
+### Generic Sprint and Task changes
+
+Sprint is Project-owned with explicit reused TaskWorkstream, unique project/code,
+name, optional goal/description, status PLANNED by default, nullable startDate,
+endDate and completedAt, creator User, and timestamps. Code is VARCHAR(64),
+name VARCHAR(255), prose TEXT, all dates TIMESTAMPTZ(6).
+No default workstream silently classifies other teams' sprints as Development.
+
+An optional projectDevelopmentId associates a DEVELOPMENT sprint with one
+version for ProjectDevelopment.sprints, but is never required. A composite FK
+keeps this context in the same project; a simple check requires DEVELOPMENT
+workstream when the context is present. Other workstreams use NULL context.
+Development sprints also work without a ProjectDevelopment record. This adds
+version context without making the generic sprint engine dependent on it.
+
+Task.sprintId is nullable UUID, indexed, with optional Sprint relation and
+Sprint.tasks inverse. A composite (projectId,sprintId) FK keeps membership in
+the same project. Each task has zero or one sprint; sprints have multiple tasks.
+Existing tasks remain valid with sprintId NULL. Moving/removing sprint membership
+does not change task status, assignment history, dates or dependencies.
+
+Sprint dates are optional while planning; when both are known, end >= start.
+Sprint state and task completion are independent. Workstream alignment between
+Task and Sprint, authorization, active-sprint policy, version/task-link alignment,
+membership history and concurrency are future service rules, not triggers.
+Only Sprint lifecycle values PLANNED, ACTIVE, COMPLETED, CANCELLED are stored.
+
+### Models, required and nullable metadata
+
+All models use UUID primary/FK IDs and createdAt TIMESTAMPTZ(6) default now.
+All except DevelopmentTaskLink have Prisma-managed updatedAt; raw SQL writers
+must supply/update it. Names/titles are VARCHAR(255).
+
+| Model / table | Required fields besides id/timestamps | Nullable fields |
+| --- | --- | --- |
+| Sprint / sprints | projectId, name, code, workstream, status (PLANNED), createdById | projectDevelopmentId, goal, description, startDate, endDate, completedAt |
+| ProjectDevelopment / project_development | projectId, versionNumber, title, status (DRAFT), createdById | description, developmentSummary, technicalNotes (TEXT), approvedById, approvedAt |
+| DevelopmentModule / development_modules | projectDevelopmentId, name, code VARCHAR(64), moduleType (OTHER), status (PLANNED), reused ProjectPriority (MEDIUM), sortOrder (0), createdById | description TEXT |
+| DevelopmentTaskLink / development_task_links | taskId, projectDevelopmentId | developmentModuleId |
+| DevelopmentRepository / development_repositories | projectDevelopmentId, name, repositoryUrl VARCHAR(2048), provider (OTHER), repositoryType (OTHER), isActive (true), createdById | defaultBranch VARCHAR(255), description TEXT |
+| DevelopmentEnvironment / development_environments | projectDevelopmentId, name, environmentType (OTHER), isActive (true) | baseUrl VARCHAR(2048), description TEXT |
+| DevelopmentDeployment / development_deployments | projectDevelopmentId, environmentId, deployedById, version VARCHAR(100), deploymentStatus (PENDING) | commitHash VARCHAR(128), deploymentUrl VARCHAR(2048), notes TEXT, deployedAt TIMESTAMPTZ(6) |
+| DevelopmentDailyReport / development_daily_status | projectDevelopmentId, statusDate DATE, status (NOT_STARTED), summary TEXT, createdById | completedWork, plannedWork, blockers, risks (TEXT), completionPercentage INTEGER |
+
+DevelopmentDailyReport is the Prisma model name to avoid a collision with the
+requested DevelopmentDailyStatus enum. The SQL table name remains as requested.
+Pending deployments can exist before deployedAt/commitHash/URL are known.
+Deployment records store metadata/history only; there is no CI/CD automation.
+
+### Enums
+
+- SprintStatus: PLANNED, ACTIVE, COMPLETED, CANCELLED.
+- DevelopmentStatus: DRAFT, PLANNING, IN_PROGRESS, IN_REVIEW, READY_FOR_QA,
+  REWORK, COMPLETED, ON_HOLD, CANCELLED.
+- DevelopmentModuleType: FEATURE, MODULE, API, INTEGRATION, DATABASE,
+  AUTHENTICATION, ADMIN, FRONTEND, BACKEND, OTHER.
+- DevelopmentModuleStatus: PLANNED, IN_PROGRESS, IN_REVIEW, COMPLETED, BLOCKED,
+  REWORK, CANCELLED.
+- RepositoryProvider: GITHUB, GITLAB, BITBUCKET, OTHER.
+- RepositoryType: FRONTEND, BACKEND, MOBILE, INFRASTRUCTURE, MONOREPO, OTHER.
+- DevelopmentEnvironmentType: LOCAL, DEVELOPMENT, STAGING, UAT, PRODUCTION, OTHER.
+- DeploymentStatus: PENDING, IN_PROGRESS, SUCCESS, FAILED, ROLLED_BACK, CANCELLED.
+- DevelopmentDailyStatus: NOT_STARTED, IN_PROGRESS, BLOCKED, READY_FOR_QA,
+  COMPLETED, ON_HOLD.
+
+No SprintWorkstream, new priority enum or Development-specific TaskType exists.
+
+### Relationships, uniqueness and indexes
+
+ProjectDevelopment references Project, creator and optional approver. Modules
+and repositories reference version/creator. Environments reference version.
+Deployments reference version, required environment and deployed-by User.
+Daily reports reference version/author. Task links reference common Task,
+required version and optional Module. All 20 new FKs, including Task→Sprint,
+use RESTRICT; composite ownership updates use NO ACTION.
+
+Composite FKs ensure a task's sprint belongs to its Project, an optional sprint
+version belongs to its Project, linked Module belongs to the Development version,
+and deployment Environment belongs to the recorded version.
+Project/version and version/module-code are unique. Positive versions,
+nonnegative module order, paired optional approver/time and percentage 0..100
+are SQL checks. Daily report version/date is unique. Task/version/module is
+unique; SQL partial index prevents duplicate NULL-module (version-only) links.
+Version-only and distinct module links for a task may coexist.
+Repository URLs, environment names/types, deployment version labels and commit
+hashes are not unique: multiple environments and deployment attempts are valid.
+
+Sprint project/code uniqueness covers project lookup; workstream/status/start/end,
+creator and optional version have indexes. Development version status/date,
+creator/approver and created date are indexed. Modules index owner/sort, status,
+type, priority and creator. Task links index version/module; uniqueness covers
+task lookup. Repositories index version/isActive, provider and creator.
+Environments index version/isActive and type. Deployments index version,
+environment, status, deployedAt and actor. Daily uniqueness covers version/date,
+with date/creator indexes; Task.sprintId is indexed.
+
+### History, secrets and service boundaries
+
+Development revisions should allocate versions serially per project and create
+new version graphs without overwriting finalized predecessors. RESTRICT
+preserves referenced records but does not freeze historical content or block
+deletion of unused leaves. Future services enforce finalized-version retention
+and preserve deployment-attempt identity/actor/version/environment; retries
+should add attempts rather than relabel old ones. Pending attempts can update
+their result/status/time; no immutable deployment-event stream is introduced.
+
+Future services must require DEVELOPMENT workstream and matching Project for
+Development task links, revalidating ownership/workstream changes. Task history
+and assignment writes retain the common engine's atomic contracts. Blockers use
+Task BLOCKED/comments/status history and report.blockers, not separate tables.
+Daily completion percentage is a reporting snapshot, not project source of truth.
+NULL means unknown; reports are correctable and do not drive task/sprint state.
+
+Files stay in MinIO; PostgreSQL holds existing File/ProjectResource metadata,
+classified DEVELOPMENT. They remain project-scoped without new version/file
+association tables. Secrets are never stored in the database: repository and
+environment models have no credential fields. Future metadata writers must
+reject credential-bearing URLs, redact secret values from notes/URLs, validate
+safe schemes and use secrets tooling instead; arbitrary TEXT cannot itself
+guarantee a caller never submits a secret.
+
+No GitHub/GitLab API, CI/CD, AWS, QA/bugs module, notifications, generic approvals,
+time tracking, tenant/organization fields, calculated balances/progress,
+frontend or application workflow is implemented. No seed data is necessary.

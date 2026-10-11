@@ -1,0 +1,1336 @@
+# Step 14 — Development Database Implementation
+
+You are continuing the incremental database implementation for the InterSmart internal ERP.
+
+## Current architecture
+
+The application is for **one organization: InterSmart**.
+
+Important architecture rules:
+
+- Do NOT create an `organizations` table.
+- Do NOT add `organization_id` or `tenant_id`.
+- `users` are internal InterSmart employees.
+- `customers` are external clients and do not authenticate.
+- PostgreSQL + Prisma.
+- UUID primary keys.
+- PostgreSQL `timestamptz` through Prisma `DateTime`.
+- `Decimal` for monetary values.
+- Existing projects, tasks, teams, files, budgets, payments, UI, and UX models must be reused.
+- No AWS services.
+- Do NOT reset the database.
+- Do NOT delete or rewrite old migrations.
+- Create a new migration only for this step.
+
+---
+
+# Previously implemented
+
+The database currently contains:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Versions / Items
+6. Projects
+7. Scope / Business Analysis
+8. Project Files / Resources
+9. Project Budget / Budget Transactions
+10. Payments / Payment Requests
+11. Common Task Engine
+12. UI Design & UI Resource Management
+13. UX Design & UX Resource Management
+
+You MUST inspect the current Prisma schema before changing anything.
+
+---
+
+# Objective
+
+Implement **Step 14 — Development Management**.
+
+The Development module must support:
+
+- Development work for projects
+- Development versions/releases
+- Development modules/features
+- Development sprints
+- Sprint tasks using the existing generic task engine
+- Developer assignments using existing project teams
+- Code/repository information
+- Development environments
+- Deployment information
+- Development daily status
+- Development-related files/resources
+- Development task tracking
+- Rework/blocking information
+- Development lifecycle/status management
+
+The design must remain reusable for future QA and deployment workflows.
+
+---
+
+# IMPORTANT ARCHITECTURE DECISIONS
+
+## 1. Reuse the existing task engine
+
+Do NOT create:
+
+```text
+dev_tasks
+development_tasks
+developer_tasks
+```
+
+Reuse:
+
+```text
+tasks
+task_assignments
+task_dependencies
+task_comments
+task_status_history
+```
+
+Development tasks should use:
+
+```text
+tasks.workstream = DEVELOPMENT
+```
+
+and existing task types such as:
+
+```text
+DEVELOPMENT
+BUG_FIX
+REVIEW
+RESEARCH
+DOCUMENTATION
+DEPLOYMENT
+OTHER
+```
+
+If an existing `TaskType` does not contain a suitable development value, inspect it first and extend the existing enum only if necessary.
+
+---
+
+## 2. Development team
+
+Do NOT create:
+
+```text
+development_team_members
+dev_team_members
+```
+
+Reuse:
+
+```text
+project_team
+```
+
+with:
+
+```text
+DEV_TL
+DEV_RESOURCE
+```
+
+---
+
+## 3. Sprint architecture
+
+Unlike UX, the business requirements explicitly require development sprints.
+
+However, design the sprint system so it can eventually become reusable by other workstreams.
+
+Do NOT create:
+
+```text
+dev_sprints
+```
+
+Use a generic:
+
+```text
+sprints
+```
+
+model.
+
+This should be associated with a project and workstream.
+
+Future UX/QA/etc. can reuse the same sprint engine.
+
+---
+
+# 1. Create `sprints`
+
+Create a reusable sprint model.
+
+Suggested fields:
+
+```text
+id
+project_id
+name
+code
+workstream
+goal
+description
+status
+start_date
+end_date
+created_by_id
+completed_at
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+project -> Project
+created_by -> User
+tasks
+```
+
+### Workstream
+
+Reuse the existing task workstream concept if possible.
+
+Development sprints should use:
+
+```text
+DEVELOPMENT
+```
+
+Do not create a separate `SprintWorkstream` enum if the existing architecture already has an appropriate reusable enum.
+
+### Sprint status
+
+Create:
+
+```text
+SprintStatus
+```
+
+Values:
+
+```text
+PLANNED
+ACTIVE
+COMPLETED
+CANCELLED
+```
+
+### Rules
+
+A sprint belongs to one project.
+
+A sprint may contain multiple tasks.
+
+A task may belong to one sprint.
+
+Add a unique constraint for sprint code within a project:
+
+```text
+(project_id, code)
+```
+
+Add indexes for:
+
+```text
+project_id
+workstream
+status
+start_date
+end_date
+```
+
+---
+
+# 2. Connect tasks to sprints
+
+Modify the existing `tasks` model.
+
+Add:
+
+```text
+sprint_id nullable
+```
+
+Relationship:
+
+```text
+sprint -> Sprint
+```
+
+Rules:
+
+- A task can exist without a sprint.
+- A task can belong to one sprint.
+- Existing tasks must remain valid.
+- Do not make `sprint_id` required.
+
+This allows:
+
+```text
+Project
+   ↓
+Sprint
+   ↓
+Task
+```
+
+while still allowing non-sprint tasks.
+
+---
+
+# 3. Create `project_development`
+
+Create the primary development workstream model.
+
+Suggested fields:
+
+```text
+id
+project_id
+version_number
+title
+description
+status
+development_summary
+technical_notes
+created_by_id
+approved_by_id
+approved_at
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+project -> Project
+created_by -> User
+approved_by -> User
+sprints
+modules
+repositories
+environments
+deployments
+development_task_links
+daily_statuses
+```
+
+### Constraints
+
+Add:
+
+```text
+unique(project_id, version_number)
+```
+
+Indexes:
+
+```text
+project_id
+status
+created_by_id
+```
+
+Do NOT store calculated:
+
+- progress percentage
+- completed task count
+- remaining task count
+- used budget
+
+as source-of-truth fields.
+
+---
+
+# 4. Development status
+
+Create:
+
+```text
+DevelopmentStatus
+```
+
+Values:
+
+```text
+DRAFT
+PLANNING
+IN_PROGRESS
+IN_REVIEW
+READY_FOR_QA
+REWORK
+COMPLETED
+ON_HOLD
+CANCELLED
+```
+
+This represents the development workstream/version lifecycle.
+
+---
+
+# 5. Create `development_modules`
+
+Create a model for development modules/features.
+
+Fields:
+
+```text
+id
+project_development_id
+name
+code
+description
+module_type
+status
+priority
+sort_order
+created_by_id
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+project_development -> ProjectDevelopment
+created_by -> User
+```
+
+### Module type
+
+Create:
+
+```text
+DevelopmentModuleType
+```
+
+Values:
+
+```text
+FEATURE
+MODULE
+API
+INTEGRATION
+DATABASE
+AUTHENTICATION
+ADMIN
+FRONTEND
+BACKEND
+OTHER
+```
+
+### Module status
+
+Create:
+
+```text
+DevelopmentModuleStatus
+```
+
+Values:
+
+```text
+PLANNED
+IN_PROGRESS
+IN_REVIEW
+COMPLETED
+BLOCKED
+REWORK
+CANCELLED
+```
+
+### Priority
+
+Reuse the existing project/task priority enum if compatible.
+
+Do NOT create another duplicate priority enum if one already exists.
+
+---
+
+# 6. Development task links
+
+Create:
+
+```text
+development_task_links
+```
+
+Fields:
+
+```text
+id
+task_id
+project_development_id
+development_module_id nullable
+created_at
+```
+
+Relationships:
+
+```text
+task -> Task
+project_development -> ProjectDevelopment
+development_module -> DevelopmentModule
+```
+
+Indexes:
+
+```text
+task_id
+project_development_id
+development_module_id
+```
+
+This allows:
+
+```text
+Generic Task
+      ↓
+Development
+      ↓
+Module / Feature
+```
+
+Do NOT create `development_tasks`.
+
+---
+
+# 7. Connect tasks to development modules
+
+A development task can optionally reference a module through `development_task_links`.
+
+Example:
+
+```text
+Task:
+Implement customer authentication API
+
+Workstream:
+DEVELOPMENT
+
+Module:
+AUTHENTICATION
+```
+
+The task remains generic.
+
+This is important because the same task engine will later support QA and other departments.
+
+---
+
+# 8. Repository management
+
+Create:
+
+```text
+development_repositories
+```
+
+This stores repository metadata only.
+
+Fields:
+
+```text
+id
+project_development_id
+name
+repository_url
+provider
+repository_type
+default_branch
+description
+is_active
+created_by_id
+created_at
+updated_at
+```
+
+### Provider
+
+Create:
+
+```text
+RepositoryProvider
+```
+
+Values:
+
+```text
+GITHUB
+GITLAB
+BITBUCKET
+OTHER
+```
+
+### Repository type
+
+Create:
+
+```text
+RepositoryType
+```
+
+Values:
+
+```text
+FRONTEND
+BACKEND
+MOBILE
+INFRASTRUCTURE
+MONOREPO
+OTHER
+```
+
+Do NOT store repository credentials, access tokens, passwords, or secrets in PostgreSQL.
+
+Do NOT integrate with GitHub/GitLab APIs in this step.
+
+---
+
+# 9. Development environments
+
+Create:
+
+```text
+development_environments
+```
+
+Fields:
+
+```text
+id
+project_development_id
+name
+environment_type
+base_url
+description
+is_active
+created_at
+updated_at
+```
+
+### Environment type
+
+Create:
+
+```text
+DevelopmentEnvironmentType
+```
+
+Values:
+
+```text
+LOCAL
+DEVELOPMENT
+STAGING
+UAT
+PRODUCTION
+OTHER
+```
+
+Do NOT store:
+
+- server passwords
+- SSH keys
+- API secrets
+- database passwords
+- cloud credentials
+
+Only metadata should be stored.
+
+---
+
+# 10. Deployment records
+
+Create:
+
+```text
+development_deployments
+```
+
+Fields:
+
+```text
+id
+project_development_id
+environment_id
+deployed_by_id
+version
+commit_hash
+deployment_status
+deployment_url
+notes
+deployed_at
+created_at
+updated_at
+```
+
+Relationships:
+
+```text
+project_development -> ProjectDevelopment
+environment -> DevelopmentEnvironment
+deployed_by -> User
+```
+
+### Deployment status
+
+Create:
+
+```text
+DeploymentStatus
+```
+
+Values:
+
+```text
+PENDING
+IN_PROGRESS
+SUCCESS
+FAILED
+ROLLED_BACK
+CANCELLED
+```
+
+Indexes:
+
+```text
+project_development_id
+environment_id
+deployment_status
+deployed_at
+```
+
+Do not implement CI/CD automation here.
+
+This table records deployment history.
+
+---
+
+# 11. Development daily status
+
+Create:
+
+```text
+development_daily_status
+```
+
+Fields:
+
+```text
+id
+project_development_id
+status_date
+status
+summary
+completed_work
+planned_work
+blockers
+risks
+completion_percentage
+created_by_id
+created_at
+updated_at
+```
+
+### Daily status enum
+
+Create:
+
+```text
+DevelopmentDailyStatus
+```
+
+Values:
+
+```text
+NOT_STARTED
+IN_PROGRESS
+BLOCKED
+READY_FOR_QA
+COMPLETED
+ON_HOLD
+```
+
+Add:
+
+```text
+unique(project_development_id, status_date)
+```
+
+Important:
+
+`completion_percentage` is a daily reporting snapshot.
+
+It is NOT the authoritative project progress.
+
+Do not calculate project completion from this single field.
+
+---
+
+# 12. Development resources/files
+
+Reuse:
+
+```text
+files
+project_resources
+```
+
+Do NOT create:
+
+```text
+development_files
+development_documents
+```
+
+If `project_resources.resource_type` already contains:
+
+```text
+DEVELOPMENT
+```
+
+reuse it.
+
+If it does not exist, extend the existing enum with:
+
+```text
+DEVELOPMENT
+```
+
+Possible resources:
+
+- Technical specification
+- API documentation
+- Architecture document
+- Database design
+- Deployment document
+- Environment documentation
+- Development reference
+- Repository documentation
+
+Actual files remain in MinIO.
+
+PostgreSQL stores metadata only.
+
+---
+
+# 13. Development team
+
+Use existing:
+
+```text
+project_team
+```
+
+with:
+
+```text
+DEV_TL
+DEV_RESOURCE
+```
+
+Do NOT create duplicate employee/team tables.
+
+The development workstream should derive team membership from `project_team`.
+
+---
+
+# 14. Development approvals
+
+Do NOT create:
+
+```text
+development_approvals
+```
+
+Do not create a generic approval engine in this step.
+
+For now, `project_development` can use:
+
+```text
+IN_REVIEW
+READY_FOR_QA
+COMPLETED
+```
+
+and:
+
+```text
+approved_by_id
+approved_at
+```
+
+Future generic approval workflows can replace this mechanism.
+
+---
+
+# 15. Development sprint rules
+
+Sprints must support:
+
+```text
+PLANNED
+ACTIVE
+COMPLETED
+CANCELLED
+```
+
+A typical lifecycle:
+
+```text
+PLANNED
+   ↓
+ACTIVE
+   ↓
+COMPLETED
+```
+
+Alternative:
+
+```text
+PLANNED
+   ↓
+CANCELLED
+```
+
+Tasks can be:
+
+- created before a sprint
+- assigned to a sprint later
+- moved between sprints if business rules permit
+- completed independently of sprint completion
+
+Do not enforce complex sprint/task business rules at database level unless the existing architecture already does so.
+
+---
+
+# 16. Sprint/task relationship
+
+The relationship should be:
+
+```text
+Project
+  |
+  +-- Project Development
+  |
+  +-- Sprint
+         |
+         +-- Task
+```
+
+Do NOT make `Sprint` dependent on `ProjectDevelopment` only.
+
+Use:
+
+```text
+project_id
+workstream
+```
+
+so the sprint engine can eventually support UX, QA, or other workstreams.
+
+For this step, development is the primary consumer.
+
+---
+
+# 17. Task dependencies
+
+Continue using the existing:
+
+```text
+task_dependencies
+```
+
+Do not create:
+
+```text
+development_dependencies
+```
+
+Example:
+
+```text
+Backend API task
+       ↓ BLOCKS
+Frontend integration task
+```
+
+Use the existing dependency mechanism.
+
+---
+
+# 18. Development blockers
+
+Do NOT create a separate blocker table yet.
+
+Use existing task status:
+
+```text
+BLOCKED
+```
+
+and:
+
+```text
+task_comments
+task_status_history
+```
+
+for detailed blocker information.
+
+For workstream-level blockers, use:
+
+```text
+development_daily_status.blockers
+```
+
+This avoids unnecessary duplicate workflow models.
+
+---
+
+# 19. Development history
+
+Use existing:
+
+```text
+task_status_history
+project_status_history
+```
+
+where applicable.
+
+Do not create:
+
+```text
+development_task_history
+```
+
+unless the existing architecture genuinely requires a development-specific immutable history.
+
+---
+
+# 20. Indexes
+
+At minimum, ensure indexes exist for:
+
+### sprints
+
+```text
+project_id
+workstream
+status
+start_date
+end_date
+```
+
+### project_development
+
+```text
+project_id
+status
+created_by_id
+```
+
+### development_modules
+
+```text
+project_development_id
+status
+module_type
+```
+
+### development_task_links
+
+```text
+task_id
+project_development_id
+development_module_id
+```
+
+### repositories
+
+```text
+project_development_id
+provider
+is_active
+```
+
+### environments
+
+```text
+project_development_id
+environment_type
+is_active
+```
+
+### deployments
+
+```text
+project_development_id
+environment_id
+deployment_status
+deployed_at
+```
+
+### daily status
+
+```text
+project_development_id
+status_date
+```
+
+Follow existing schema naming/index conventions.
+
+---
+
+# 21. Referential integrity
+
+Follow the existing Prisma relationship and deletion strategy.
+
+Expected:
+
+- Project development belongs to a project.
+- Sprint belongs to a project.
+- Development module belongs to a development version.
+- Development task links reference existing tasks.
+- Repository belongs to development.
+- Environment belongs to development.
+- Deployment references an environment.
+- Deployment preserves the employee who performed it.
+- Daily status belongs to development.
+- Historical records should not disappear because a user is soft-deleted.
+
+Do not introduce a different deletion strategy from the rest of the schema.
+
+---
+
+# 22. Prisma implementation process
+
+Before editing:
+
+1. Inspect the current schema.
+2. Inspect existing enums.
+3. Inspect the current `Task`, `Project`, `ProjectTeam`, `File`, and `ProjectResource` models.
+4. Reuse existing enums wherever possible.
+5. Add only the models/enums/fields required for Step 14.
+6. Avoid duplicate concepts.
+7. Ensure every relation has both Prisma sides.
+8. Check naming conventions.
+
+Do not modify unrelated modules.
+
+---
+
+# 23. Migration
+
+Create exactly one migration for this step.
+
+Example:
+
+```bash
+npx prisma migrate dev --name add_development_management
+```
+
+Do NOT run:
+
+```bash
+npx prisma migrate reset
+```
+
+Do NOT delete old migrations.
+
+Do NOT modify old migration files.
+
+---
+
+# 24. Validation
+
+Run:
+
+```bash
+npx prisma validate
+```
+
+Then:
+
+```bash
+npx prisma generate
+```
+
+Run the project's existing:
+
+- TypeScript checks
+- lint
+- build
+- tests
+
+where applicable.
+
+Verify:
+
+- Migration succeeds.
+- Prisma schema validates.
+- Prisma Client generates.
+- Existing models still compile.
+- Existing migrations remain untouched.
+- No unrelated schema changes were introduced.
+
+---
+
+# 25. Documentation
+
+Update the existing database/architecture documentation.
+
+Document:
+
+```text
+Step 14 — Development
+```
+
+Include:
+
+- `sprints`
+- `project_development`
+- `development_modules`
+- `development_task_links`
+- `development_repositories`
+- `development_environments`
+- `development_deployments`
+- `development_daily_status`
+
+Document these architectural decisions:
+
+```text
+Development uses the common task engine.
+Development uses project_team for DEV_TL / DEV_RESOURCE.
+Development uses a reusable generic sprint model.
+Development uses files/project_resources for documents.
+Development deployment records store metadata/history only.
+Secrets are never stored in the database.
+Daily completion percentage is a reporting snapshot.
+No separate development task engine exists.
+```
+
+---
+
+# 26. Final verification checklist
+
+Before stopping, verify:
+
+## Development core
+
+- [ ] `project_development` exists.
+- [ ] Development versions are supported.
+- [ ] Project/version uniqueness exists.
+- [ ] Development lifecycle statuses exist.
+
+## Sprints
+
+- [ ] Generic `sprints` model exists.
+- [ ] Sprint is project-based.
+- [ ] Sprint has a reusable workstream.
+- [ ] Development can use `workstream = DEVELOPMENT`.
+- [ ] Sprint status exists.
+- [ ] Sprint code is unique per project.
+- [ ] Tasks can optionally reference a sprint.
+
+## Modules
+
+- [ ] Development modules exist.
+- [ ] Module types exist.
+- [ ] Module statuses exist.
+- [ ] Modules belong to development versions.
+
+## Tasks
+
+- [ ] Existing `tasks` are reused.
+- [ ] `development_task_links` exists.
+- [ ] No `dev_tasks` table was created.
+- [ ] Existing task dependencies are reused.
+
+## Team
+
+- [ ] Existing `project_team` is reused.
+- [ ] `DEV_TL` is supported.
+- [ ] `DEV_RESOURCE` is supported.
+- [ ] No duplicate development team table exists.
+
+## Repository
+
+- [ ] Repository metadata exists.
+- [ ] Repository provider exists.
+- [ ] No credentials/secrets are stored.
+
+## Environments
+
+- [ ] Environment metadata exists.
+- [ ] Environment types exist.
+- [ ] No credentials/secrets are stored.
+
+## Deployment
+
+- [ ] Deployment history exists.
+- [ ] Environment is referenced.
+- [ ] Deployed-by user is referenced.
+- [ ] Commit/version information can be stored.
+- [ ] Deployment status exists.
+
+## Reporting
+
+- [ ] Development daily status exists.
+- [ ] One daily status per development/date.
+- [ ] Completion percentage is treated as a snapshot.
+
+## Resources
+
+- [ ] Existing `files` are reused.
+- [ ] Existing `project_resources` are reused.
+- [ ] DEVELOPMENT resource type exists.
+
+## Architecture
+
+- [ ] No AWS services.
+- [ ] No organizations table.
+- [ ] No organization_id.
+- [ ] No tenant_id.
+- [ ] No duplicate task engine.
+- [ ] No duplicate team engine.
+- [ ] No development-specific task table.
+- [ ] No development-specific team table.
+- [ ] No approval engine.
+- [ ] No secrets stored in PostgreSQL.
+- [ ] No calculated budget/progress source-of-truth fields added.
+
+---
+
+# STOP CONDITION
+
+After completing Step 14:
+
+1. Show me the files/models changed.
+2. Show me the migration name.
+3. Show me the final Development-related Prisma models/enums added or modified.
+4. Show me the final `Task` changes.
+5. Show me the final generic `Sprint` design.
+6. Show validation results.
+7. Mention any existing schema conflicts that had to be resolved.
+8. Do NOT start Step 15.
+9. Do NOT implement QA.
+10. Do NOT implement bug management beyond what is necessary for Development.
+11. Do NOT implement notifications.
+12. Do NOT implement generic approvals.
+13. Do NOT implement CI/CD automation.
+14. Do NOT implement time tracking.
+
+**STOP after Step 14 is fully validated.**

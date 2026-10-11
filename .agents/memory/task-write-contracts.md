@@ -30,16 +30,17 @@ blocking cycles before committing, and specify allowed cross-project links.
 Treat related links as directed stored associations unless a future policy
 normalizes them; don't introduce recursive triggers or a scheduler implicitly.
 
-UI/UX task links require same-project ownership and the matching UI/UX workstream, but those
+UI/UX/Development task links require same-project ownership and the matching workstream, but those
 cross-table classification rules are a future service contract, not an FK
 guarantee. Validate subsequent ownership/workstream edits as well as link creation.
 
 **Why:** The common task engine remains domain-neutral; domain links enforce valid
-entities and UI section/page or UX context/version containment without implementing lifecycle workflows.
+entities and UI section/page, UX context/version or Development module/version
+containment without implementing lifecycle workflows.
 A link validated once can become invalid when either endpoint is later moved.
 
-**How to apply:** Check existing UI/UX associations before changing task project or
-workstream, or moving design specifications/deliverables. Serialize competing ownership
+**How to apply:** Check existing domain associations before changing task project or
+workstream, or moving version definitions/deliverables. Serialize competing ownership
 edits and link writes; do not assume a retained FK proves classification alignment.
 
 UX flow-step screen references require same-version alignment in future services.
@@ -50,3 +51,16 @@ existence, not alignment with the owning flow's version.
 
 **How to apply:** Validate both endpoints when creating/editing steps and before
 moving a screen or flow between versions. Permit NULL screens while planning.
+
+Sprint/task workstream alignment and permitted membership changes remain
+future service rules. Sprint completion does not imply task completion.
+
+**Why:** Sprints are generic project/workstream planning records, independent
+of department version definitions and execution lifecycle. The database
+enforces project containment but deliberately does not orchestrate task state,
+active-sprint policy or immutable membership history.
+
+**How to apply:** Authorize and serialize membership edits, validate workstream
+and any department-version associations, and decide whether membership history
+is needed before changing completed-sprint policy. Do not silently complete
+tasks or rewrite their task-status/assignment history when a sprint closes.

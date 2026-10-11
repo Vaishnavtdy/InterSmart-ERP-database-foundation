@@ -81,6 +81,11 @@ common tasks through UX task links, ProjectTeam UX roles and existing MinIO
 file/resource metadata. Plan UX work with task dates/hierarchy, not UX-specific
 sprints. UX daily completion is a reporting snapshot, not project source of truth.
 
+Development uses common tasks, ProjectTeam DEV roles and MinIO resources.
+Sprints are reusable project/workstream records, not Development-only sprints;
+tasks may have no sprint. Repository/environment/deployment records store
+metadata only, never credentials, and do not run integrations or CI/CD.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

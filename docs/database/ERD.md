@@ -2,6 +2,175 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ PROJECT_INFRASTRUCTURE : "infrastructure versions"
+  USERS ||--o{ PROJECT_INFRASTRUCTURE : "creates"
+  USERS o|--o{ PROJECT_INFRASTRUCTURE : "optional approval"
+  PROJECT_INFRASTRUCTURE ||--o{ PROJECT_SERVERS : "server metadata"
+  USERS ||--o{ PROJECT_SERVERS : "creates"
+  PROJECT_SERVERS o|--o{ DEVELOPMENT_DEPLOYMENTS : "optional existing deployment server"
+  PROJECT_INFRASTRUCTURE ||--o{ PROJECT_DOMAINS : "global domain registry"
+  PROJECT_SERVERS o|--o{ PROJECT_DOMAINS : "optional same-version host"
+  USERS ||--o{ PROJECT_DOMAINS : "creates"
+  PROJECT_INFRASTRUCTURE ||--o{ DNS_RECORDS : "direct owner lookup"
+  PROJECT_DOMAINS ||--o{ DNS_RECORDS : "same-version published records"
+  PROJECT_INFRASTRUCTURE ||--o{ SSL_CERTIFICATES : "certificate metadata"
+  PROJECT_DOMAINS o|--o{ SSL_CERTIFICATES : "optional same-version domain"
+  PROJECTS ||--o{ PROJECT_GO_LIVE : "multiple attempts"
+  PROJECT_INFRASTRUCTURE ||--o{ PROJECT_GO_LIVE : "same-project version"
+  DEVELOPMENT_DEPLOYMENTS o|--o{ PROJECT_GO_LIVE : "existing deployment reference"
+  USERS ||--o{ PROJECT_GO_LIVE : "creates"
+  USERS o|--o{ PROJECT_GO_LIVE : "approves"
+  USERS o|--o{ PROJECT_GO_LIVE : "completes"
+  PROJECT_GO_LIVE ||--o{ GO_LIVE_CHECKLIST_ITEMS : "release checklist"
+  USERS o|--o{ GO_LIVE_CHECKLIST_ITEMS : "assigned to"
+  USERS o|--o{ GO_LIVE_CHECKLIST_ITEMS : "completed by"
+  TASKS ||--o{ INFRASTRUCTURE_TASK_LINKS : "generic SYSTEM_ADMIN work"
+  PROJECT_INFRASTRUCTURE o|--o{ INFRASTRUCTURE_TASK_LINKS : "optional version"
+  PROJECT_SERVERS o|--o{ INFRASTRUCTURE_TASK_LINKS : "optional server"
+  PROJECT_DOMAINS o|--o{ INFRASTRUCTURE_TASK_LINKS : "optional domain"
+  PROJECT_GO_LIVE o|--o{ INFRASTRUCTURE_TASK_LINKS : "optional attempt"
+  PROJECTS ||--o{ PRODUCTION_HANDOVERS : "operational handover"
+  PROJECT_GO_LIVE ||--o{ PRODUCTION_HANDOVERS : "same-project attempt"
+  USERS ||--o{ PRODUCTION_HANDOVERS : "hands over"
+  USERS o|--o{ PRODUCTION_HANDOVERS : "receives"
+  PROJECT_INFRASTRUCTURE ||--o{ INFRASTRUCTURE_BACKUPS : "backup metadata"
+  PROJECT_SERVERS o|--o{ INFRASTRUCTURE_BACKUPS : "optional same-version server"
+
+  PROJECT_INFRASTRUCTURE {
+    uuid id PK
+    uuid project_id FK
+    int version_number "positive, unique with Project"
+    string title
+    InfrastructureStatus status
+    string infrastructure_notes "nullable"
+    boolean monitoring_enabled "metadata only"
+    string monitoring_notes "nullable"
+    string monitoring_url "nullable"
+    uuid created_by_id FK
+    uuid approved_by_id FK "nullable, paired with approved_at"
+  }
+  PROJECT_SERVERS {
+    uuid id PK
+    uuid project_infrastructure_id FK
+    string name
+    ServerType server_type
+    InfrastructureProvider provider
+    DevelopmentEnvironmentType environment
+    string hostname "nullable"
+    string ip_address "nullable IPv4/IPv6 metadata"
+    string operating_system "nullable"
+    string os_version "nullable"
+    string region "nullable"
+    string datacenter "nullable"
+    boolean is_active
+    string credential_reference "nullable EXTERNAL IDENTIFIER ONLY"
+    uuid created_by_id FK
+  }
+  PROJECT_DOMAINS {
+    uuid id PK
+    uuid project_infrastructure_id FK
+    uuid server_id FK "nullable same version"
+    string domain UK "also case-insensitive unique"
+    DomainType domain_type
+    DevelopmentEnvironmentType environment
+    InfrastructureProvider provider
+    DomainStatus status
+    boolean is_primary
+    boolean auto_renew
+    timestamptz expires_at "nullable"
+    uuid created_by_id FK
+  }
+  DNS_RECORDS {
+    uuid id PK
+    uuid project_infrastructure_id FK
+    uuid project_domain_id FK "same version"
+    DnsRecordType record_type
+    string name
+    string value "published DNS metadata"
+    int ttl "nullable, nonnegative"
+    int priority "nullable, 0..65535"
+    boolean is_active
+  }
+  SSL_CERTIFICATES {
+    uuid id PK
+    uuid project_infrastructure_id FK
+    uuid project_domain_id FK "nullable for wildcard/multi-domain"
+    string certificate_name
+    string issuer "nullable"
+    SslCertificateType certificate_type
+    SslCertificateStatus status
+    timestamptz issued_at "nullable"
+    timestamptz expires_at "nullable"
+    boolean auto_renew
+    SslRenewalMethod renewal_method
+  }
+  PROJECT_GO_LIVE {
+    uuid id PK
+    uuid project_id FK "NOT unique"
+    uuid project_infrastructure_id FK "same project"
+    uuid deployment_id FK "nullable, existing Development"
+    GoLiveStatus status
+    timestamptz planned_date "nullable"
+    timestamptz actual_date "nullable"
+    string production_url "nullable"
+    string go_live_notes "nullable"
+    string rollback_notes "nullable"
+    uuid approved_by_id FK "nullable"
+    timestamptz approved_at "nullable"
+    uuid completed_by_id FK "nullable"
+    timestamptz completed_at "nullable"
+    uuid created_by_id FK
+  }
+  GO_LIVE_CHECKLIST_ITEMS {
+    uuid id PK
+    uuid project_go_live_id FK
+    string title
+    GoLiveChecklistCategory category
+    GoLiveChecklistStatus status
+    boolean is_required
+    int sort_order "nonnegative"
+    uuid assigned_to_id FK "nullable"
+    uuid completed_by_id FK "nullable"
+    timestamptz completed_at "nullable, paired with actor"
+  }
+  INFRASTRUCTURE_TASK_LINKS {
+    uuid id PK
+    uuid task_id FK
+    uuid project_infrastructure_id FK "nullable"
+    uuid project_server_id FK "nullable"
+    uuid project_domain_id FK "nullable"
+    uuid project_go_live_id FK "nullable"
+    timestamptz created_at
+  }
+  PRODUCTION_HANDOVERS {
+    uuid id PK
+    uuid project_id FK
+    uuid project_go_live_id FK "same project"
+    uuid handed_over_by_id FK
+    uuid received_by_id FK "nullable"
+    timestamptz handover_date "nullable"
+    HandoverStatus status
+    string application_url "nullable"
+    string admin_url "nullable"
+    boolean documentation_completed
+    boolean backup_configured
+    boolean monitoring_configured
+    boolean ssl_configured
+    boolean domain_configured
+    string support_notes "nullable, no AMC"
+  }
+  INFRASTRUCTURE_BACKUPS {
+    uuid id PK
+    uuid project_infrastructure_id FK
+    uuid server_id FK "nullable same version"
+    BackupType backup_type
+    InfrastructureProvider provider
+    string frequency "nullable metadata, no scheduler"
+    string retention_period "nullable"
+    timestamptz last_backup_at "nullable"
+    BackupStatus status
+  }
+
   PROJECTS ||--o{ PROJECT_QA : "QA cycles"
   USERS ||--o{ PROJECT_QA : "creates"
   USERS o|--o{ PROJECT_QA : "optional approval"
@@ -271,6 +440,7 @@ erDiagram
     uuid id PK
     uuid project_development_id FK
     uuid environment_id FK "same Development version"
+    uuid server_id FK "nullable existing deployment infrastructure reference"
     uuid deployed_by_id FK
     string version
     string commit_hash "nullable"
@@ -1157,3 +1327,19 @@ task/discovery Project alignment also require validation on writes and later mov
 QA daily percentage is a snapshot; QaDailyReport avoids the enum naming collision.
 README lists every required/nullable scalar and timestamp omitted from compact
 entity blocks above. No secrets, duplicated work/team/storage or tenant engine.
+
+Step 16 System Administration / Go-Live: metadata only, never secret storage.
+Server/domain environment enum reused; task/sprint/team use SYSTEM_ADMIN and
+existing File/ProjectResource uses INFRASTRUCTURE. Optional existing deployment
+server and go-live deployment links avoid a second deployment ledger.
+Infrastructure/domain/server context FKs prevent mismatched DNS, SSL and backups;
+project containment enforced for go-live and handover. All 33 new FKs RESTRICT.
+Infrastructure task contexts independently nullable and deduplicated; matching
+Project/version/workstream is service policy, including subsequent owner edits.
+Deployment/server and go-live/deployment Project agreement also needs services.
+Checklist completion/approval gates and finalized operation retention require
+future serialized writes, not automatic DB workflows. Global domains are not
+implicitly cloned into infrastructure versions. Monitoring/backup flags are
+manual metadata, no monitoring/CI-CD/backup engine. CredentialReference is only
+an external identifier; no private-key/credential documents permitted. README
+includes all nullable narrative/timestamp fields omitted from compact blocks.

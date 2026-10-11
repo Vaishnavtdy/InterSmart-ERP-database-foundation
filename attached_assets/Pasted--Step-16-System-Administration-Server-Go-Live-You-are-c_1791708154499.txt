@@ -1,0 +1,1541 @@
+# Step 16 — System Administration / Server / Go-Live
+
+You are continuing the incremental database implementation for the InterSmart internal ERP.
+
+## Current architecture
+
+The application is for **one organization: InterSmart**.
+
+Important architecture rules:
+
+- Do NOT create an `organizations` table.
+- Do NOT add `organization_id` or `tenant_id`.
+- `users` are internal InterSmart employees.
+- `customers` are external clients and do not authenticate.
+- PostgreSQL + Prisma.
+- UUID primary keys.
+- PostgreSQL `timestamptz` through Prisma `DateTime`.
+- `Decimal` for monetary values.
+- No AWS services.
+- Infrastructure may use self-hosted servers, VPS, Docker, Nginx, MinIO, PostgreSQL, Redis, etc.
+- Do NOT store passwords, API keys, SSH private keys, tokens, or other secrets in PostgreSQL.
+- Existing Project, Task, Sprint, Development, QA, File, Team, and Deployment models must be reused.
+- Do NOT reset the database.
+- Do NOT delete or rewrite previous migrations.
+- Create a new migration only for this step.
+
+---
+
+# Previously implemented
+
+The database currently contains:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Versions / Items
+6. Projects
+7. Scope / Business Analysis
+8. Project Files / Resources
+9. Project Budget / Budget Transactions
+10. Payments / Payment Requests
+11. Common Task Engine
+12. UI Design & UI Resource Management
+13. UX Design & UX Resource Management
+14. Development Management
+15. QA & Bug Management
+
+Development already contains reusable:
+
+```text id="f5n7c8"
+sprints
+development_environments
+development_deployments
+```
+
+QA already references:
+
+```text id="5y4n9p"
+development_environments
+```
+
+You MUST inspect the actual current Prisma schema before implementing Step 16.
+
+---
+
+# Objective
+
+Implement **Step 16 — System Administration / Server / Go-Live Management**.
+
+The module must support:
+
+- Project infrastructure
+- Server management
+- Hosting/provider information
+- Domains
+- DNS information
+- SSL certificate tracking
+- Deployment/go-live planning
+- Production environment metadata
+- Server assignments
+- Go-live checklist
+- Go-live tasks
+- Deployment history references
+- Production handover
+- Maintenance/support handover
+- System administrator activities
+- Infrastructure notes
+- Infrastructure files/resources
+
+This module stores **metadata and operational records**, not secrets.
+
+---
+
+# CRITICAL SECURITY RULE
+
+The ERP must NEVER store:
+
+- SSH private keys
+- SSH passwords
+- server passwords
+- database passwords
+- API keys
+- access tokens
+- cloud secrets
+- SMTP passwords
+- MinIO secret keys
+- Git credentials
+- TLS private keys
+
+Do not add generic fields such as:
+
+```text id="0v1x5r"
+password
+secret
+private_key
+api_key
+access_token
+credential
+```
+
+to infrastructure models.
+
+If credentials need to be referenced, store only:
+
+```text id="n9m7w2"
+credential_reference
+```
+
+or:
+
+```text id="4f2j8c"
+credential_name
+```
+
+meaning a reference to an external secure secret manager/password manager.
+
+The actual secret must remain outside PostgreSQL.
+
+---
+
+# 1. Create `project_infrastructure`
+
+Create the main infrastructure/workstream record.
+
+Suggested fields:
+
+```text id="g4h7z1"
+id
+project_id
+version_number
+title
+description
+status
+infrastructure_notes
+created_by_id
+approved_by_id
+approved_at
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="b7v9c2"
+project -> Project
+created_by -> User
+approved_by -> User
+servers
+domains
+ssl_certificates
+dns_records
+go_live
+infrastructure_tasks
+```
+
+Constraint:
+
+```text id="w2m8k5"
+unique(project_id, version_number)
+```
+
+Indexes:
+
+```text id="j5r3n9"
+project_id
+status
+created_by_id
+```
+
+Do not store calculated infrastructure progress.
+
+---
+
+# 2. Infrastructure status
+
+Create:
+
+```text id="h8q4s6"
+InfrastructureStatus
+```
+
+Values:
+
+```text id="r5m2x9"
+DRAFT
+PLANNING
+IN_PROGRESS
+READY
+IN_REVIEW
+APPROVED
+COMPLETED
+ON_HOLD
+CANCELLED
+```
+
+---
+
+# 3. Server model
+
+Create:
+
+```text id="s7n4p2"
+project_servers
+```
+
+Fields:
+
+```text id="k8x3m6"
+id
+project_infrastructure_id
+name
+server_type
+provider
+hostname
+ip_address
+operating_system
+os_version
+environment
+region
+datacenter
+description
+is_active
+credential_reference
+created_by_id
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="u6q2y8"
+project_infrastructure -> ProjectInfrastructure
+created_by -> User
+deployments
+```
+
+### Server type
+
+Create:
+
+```text id="t4r9m1"
+ServerType
+```
+
+Values:
+
+```text id="v7k2p5"
+APPLICATION
+DATABASE
+WEB
+API
+FILE_STORAGE
+CACHE
+PROXY
+CI_CD
+MONITORING
+OTHER
+```
+
+### Provider
+
+Create:
+
+```text id="p8w3c6"
+InfrastructureProvider
+```
+
+Values:
+
+```text id="n4h9s2"
+SELF_HOSTED
+VPS
+DEDICATED_SERVER
+SHARED_HOSTING
+HOSTINGER
+GODADDY
+DIGITALOCEAN
+HETZNER
+LINODE
+OTHER
+```
+
+Do not assume these providers are mandatory.
+
+The system must allow `OTHER`.
+
+### Environment
+
+Reuse the existing environment concept if compatible.
+
+If the existing:
+
+```text id="q2c6v8"
+DevelopmentEnvironmentType
+```
+
+is appropriate for server records, reuse it.
+
+Otherwise create a small reusable infrastructure environment enum:
+
+```text id="z6m4r7"
+InfrastructureEnvironment
+```
+
+with:
+
+```text id="0q9w3e"
+DEVELOPMENT
+STAGING
+UAT
+PRODUCTION
+OTHER
+```
+
+Do not create duplicate environment concepts unnecessarily.
+
+---
+
+# 4. Server deployment relationship
+
+Existing:
+
+```text id="d3h8k1"
+development_deployments
+```
+
+already references:
+
+```text id="v9m2q5"
+development_environments
+```
+
+Do NOT redesign Development deployment history in this step.
+
+If production deployment needs infrastructure/server metadata, create an optional reference only where architecturally appropriate.
+
+Do not duplicate deployment records.
+
+---
+
+# 5. Domain management
+
+Create:
+
+```text id="a5k9r2"
+project_domains
+```
+
+Fields:
+
+```text id="n7m3x8"
+id
+project_infrastructure_id
+domain
+domain_type
+environment
+provider
+is_primary
+status
+expires_at
+auto_renew
+notes
+created_by_id
+created_at
+updated_at
+```
+
+### Domain type
+
+Create:
+
+```text id="c8v2p4"
+DomainType
+```
+
+Values:
+
+```text id="x7m1q9"
+PRIMARY
+SUBDOMAIN
+API
+ADMIN
+STAGING
+DEVELOPMENT
+OTHER
+```
+
+### Domain status
+
+Create:
+
+```text id="f4s8n3"
+DomainStatus
+```
+
+Values:
+
+```text id="y6k2w7"
+PLANNED
+ACTIVE
+INACTIVE
+EXPIRED
+CANCELLED
+```
+
+Add:
+
+```text id="m9r4c1"
+unique(domain)
+```
+
+unless the existing schema/project requirements require the same domain to exist across different projects. If so, inspect the architecture and use an appropriate scoped unique constraint.
+
+---
+
+# 6. DNS records
+
+Create:
+
+```text id="q8x2n6"
+dns_records
+```
+
+Fields:
+
+```text id="u3m7p9"
+id
+project_domain_id
+record_type
+name
+value
+ttl
+priority
+is_active
+notes
+created_at
+updated_at
+```
+
+### DNS record type
+
+Create:
+
+```text id="h4k8s1"
+DnsRecordType
+```
+
+Values:
+
+```text id="c6v2x9"
+A
+AAAA
+CNAME
+MX
+TXT
+NS
+SRV
+CAA
+OTHER
+```
+
+Do not store DNS provider credentials.
+
+---
+
+# 7. SSL certificate management
+
+Create:
+
+```text id="r7m3q8"
+ssl_certificates
+```
+
+Fields:
+
+```text id="p4x9k2"
+id
+project_infrastructure_id
+project_domain_id
+certificate_name
+issuer
+certificate_type
+status
+issued_at
+expires_at
+auto_renew
+renewal_method
+notes
+created_at
+updated_at
+```
+
+### Certificate type
+
+Create:
+
+```text id="s5n8w3"
+SslCertificateType
+```
+
+Values:
+
+```text id="j2c7v9"
+LETS_ENCRYPT
+COMMERCIAL
+SELF_SIGNED
+OTHER
+```
+
+### Certificate status
+
+Create:
+
+```text id="x4q8m1"
+SslCertificateStatus
+```
+
+Values:
+
+```text id="z6p2r5"
+PENDING
+ACTIVE
+EXPIRING_SOON
+EXPIRED
+REVOKED
+CANCELLED
+```
+
+### Renewal method
+
+Create:
+
+```text id="k9w3s7"
+SslRenewalMethod
+```
+
+Values:
+
+```text id="a5m8x2"
+CERTBOT
+MANUAL
+HOSTING_PANEL
+OTHER
+```
+
+Do not store:
+
+- private certificate key
+- PEM private key
+- account credentials
+
+Only certificate metadata.
+
+---
+
+# 8. Go-live record
+
+Create:
+
+```text id="v6n2c9"
+project_go_live
+```
+
+Fields:
+
+```text id="m3q8x5"
+id
+project_id
+project_infrastructure_id
+planned_date
+actual_date
+status
+production_url
+go_live_notes
+rollback_notes
+approved_by_id
+approved_at
+completed_by_id
+completed_at
+created_by_id
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="p8k4y2"
+project -> Project
+project_infrastructure -> ProjectInfrastructure
+approved_by -> User
+completed_by -> User
+created_by -> User
+checklist_items
+```
+
+### Go-live status
+
+Create:
+
+```text id="c7r2m8"
+GoLiveStatus
+```
+
+Values:
+
+```text id="n5x9q3"
+PLANNED
+READY
+IN_PROGRESS
+COMPLETED
+FAILED
+ROLLED_BACK
+CANCELLED
+```
+
+A project may eventually have multiple go-live attempts.
+
+Therefore do NOT enforce:
+
+```text id="f9m2k6"
+unique(project_id)
+```
+
+unless the existing business rules explicitly require only one go-live record.
+
+Prefer allowing multiple records so failed/rolled-back releases can be tracked.
+
+---
+
+# 9. Go-live checklist
+
+Create:
+
+```text id="q4m8x7"
+go_live_checklist_items
+```
+
+Fields:
+
+```text id="p6n2c9"
+id
+project_go_live_id
+title
+description
+category
+status
+is_required
+sort_order
+assigned_to_id
+completed_by_id
+completed_at
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="v7x3m1"
+project_go_live -> ProjectGoLive
+assigned_to -> User
+completed_by -> User
+```
+
+### Checklist category
+
+Create:
+
+```text id="w5k9r2"
+GoLiveChecklistCategory
+```
+
+Values:
+
+```text id="s8m4q6"
+SERVER
+DOMAIN
+DNS
+SSL
+DATABASE
+APPLICATION
+FILES
+BACKUP
+EMAIL
+PAYMENT
+SECURITY
+SEO
+ANALYTICS
+TESTING
+CLIENT_APPROVAL
+DOCUMENTATION
+OTHER
+```
+
+### Checklist status
+
+Create:
+
+```text id="x9c3p7"
+GoLiveChecklistStatus
+```
+
+Values:
+
+```text id="n2v6m8"
+PENDING
+IN_PROGRESS
+COMPLETED
+BLOCKED
+NOT_APPLICABLE
+```
+
+---
+
+# 10. Infrastructure tasks
+
+Do NOT create:
+
+```text id="h7s2m9"
+server_tasks
+deployment_tasks
+infrastructure_tasks_engine
+```
+
+Reuse the existing generic:
+
+```text id="e8k4q1"
+tasks
+```
+
+Infrastructure tasks use:
+
+```text id="r6n3w8"
+tasks.workstream = OTHER
+```
+
+unless the existing workstream enum already has a suitable:
+
+```text id="5p9x2c"
+SYSTEM_ADMIN
+```
+
+If appropriate, add:
+
+```text id="k3m7v1"
+SYSTEM_ADMIN
+```
+
+to the existing generic workstream enum.
+
+Create:
+
+```text id="a9q4s6"
+infrastructure_task_links
+```
+
+Fields:
+
+```text id="c2w8n5"
+id
+task_id
+project_infrastructure_id
+project_server_id
+project_domain_id
+project_go_live_id
+created_at
+```
+
+All contextual IDs except `task_id` should be nullable.
+
+This allows:
+
+```text id="v8m3r2"
+Task
+ ↓
+Infrastructure
+ ├── Server
+ ├── Domain
+ └── Go-Live
+```
+
+---
+
+# 11. Infrastructure files
+
+Reuse:
+
+```text id="g6q2x9"
+files
+project_resources
+```
+
+If `project_resources.resource_type` does not contain:
+
+```text id="n4m8c7"
+INFRASTRUCTURE
+```
+
+add it.
+
+Possible infrastructure resources:
+
+- Server documentation
+- Deployment guide
+- DNS documentation
+- SSL documentation
+- Architecture diagram
+- Production handover document
+- Backup documentation
+- Server configuration documentation
+- Go-live checklist export
+
+Never upload actual private keys or credentials into this system.
+
+---
+
+# 12. Production handover
+
+Create:
+
+```text id="r8k3m5"
+production_handovers
+```
+
+Fields:
+
+```text id="x4n7q2"
+id
+project_id
+project_go_live_id
+handed_over_by_id
+received_by_id
+handover_date
+status
+application_url
+admin_url
+documentation_completed
+backup_configured
+monitoring_configured
+ssl_configured
+domain_configured
+notes
+created_at
+updated_at
+```
+
+### Handover status
+
+Create:
+
+```text id="m6p2s8"
+HandoverStatus
+```
+
+Values:
+
+```text id="w9c4x1"
+DRAFT
+IN_PROGRESS
+COMPLETED
+REJECTED
+CANCELLED
+```
+
+Relationships:
+
+```text id="q7v3n5"
+project -> Project
+project_go_live -> ProjectGoLive
+handed_over_by -> User
+received_by -> User
+```
+
+This represents the operational handover after go-live.
+
+---
+
+# 13. Maintenance/support information
+
+Do NOT create a full AMC system in this step because the broader Accounts/Sales workflow may later require its own model.
+
+However, production handover should be able to record:
+
+```text id="y8m3k6"
+support_notes
+```
+
+or similar notes if necessary.
+
+Do NOT create:
+
+```text id="h5q2r9"
+amc_contracts
+support_contracts
+```
+
+in this step.
+
+Those belong to a later business module.
+
+---
+
+# 14. Backup metadata
+
+System Administration needs backup visibility.
+
+Create:
+
+```text id="p3x7n8"
+infrastructure_backups
+```
+
+Fields:
+
+```text id="m9k4q2"
+id
+project_infrastructure_id
+server_id
+backup_type
+provider
+frequency
+retention_period
+last_backup_at
+status
+notes
+created_at
+updated_at
+```
+
+### Backup type
+
+Create:
+
+```text id="s6w2c9"
+BackupType
+```
+
+Values:
+
+```text id="z4n8p1"
+DATABASE
+FILES
+SERVER
+APPLICATION
+CONFIGURATION
+OTHER
+```
+
+### Backup status
+
+Create:
+
+```text id="v7m3x5"
+BackupStatus
+```
+
+Values:
+
+```text id="q2k8r4"
+NOT_CONFIGURED
+ACTIVE
+WARNING
+FAILED
+DISABLED
+```
+
+Do not store backup credentials.
+
+Do not store backup data inside PostgreSQL.
+
+This table records operational metadata only.
+
+---
+
+# 15. Monitoring metadata
+
+Do not build monitoring itself into the ERP.
+
+However, system administration can record whether monitoring is configured.
+
+If useful, add to `project_infrastructure`:
+
+```text id="x5n9q3"
+monitoring_enabled
+monitoring_notes
+```
+
+and optionally:
+
+```text id="r4m8k2"
+monitoring_url
+```
+
+Do not create a monitoring engine.
+
+Actual monitoring remains handled by tools such as Prometheus/Grafana/Loki or another external system.
+
+---
+
+# 16. Server relationship to domains
+
+Do NOT create a direct many-to-many server/domain table unless the actual business requirements require it.
+
+The infrastructure model can already connect:
+
+```text id="g8q3v6"
+Infrastructure
+ ├── Servers
+ ├── Domains
+ └── SSL Certificates
+```
+
+If a domain must explicitly reference its hosting server, it is acceptable to add:
+
+```text id="m2x7c9"
+server_id nullable
+```
+
+to `project_domains`.
+
+Only add this if it fits the existing schema and does not create ambiguous relationships.
+
+---
+
+# 17. SSL relationship
+
+`ssl_certificates.project_domain_id` should be nullable if wildcard/multi-domain certificates need to be represented.
+
+For normal certificates:
+
+```text id="j8q4m3"
+SSL Certificate
+      ↓
+Project Domain
+```
+
+Do not assume every certificate maps to exactly one domain.
+
+---
+
+# 18. Go-live relationship to deployment
+
+Do not duplicate deployment history.
+
+`project_go_live` can reference the relevant deployment if useful.
+
+If the existing `development_deployments` model can safely support this, add:
+
+```text id="f5n9x2"
+deployment_id nullable
+```
+
+to `project_go_live`.
+
+Only make this change if it fits the current schema.
+
+Do not create a second deployment-history table.
+
+---
+
+# 19. Go-live approval
+
+Do not create:
+
+```text id="p7k3m9"
+go_live_approvals
+```
+
+Use:
+
+```text id="z4x8c2"
+approved_by_id
+approved_at
+status
+```
+
+on `project_go_live`.
+
+A future generic approval engine can replace this.
+
+---
+
+# 20. System administrator activities
+
+Do not create a separate activity engine.
+
+Use existing:
+
+```text id="j8m4q1"
+tasks
+task_comments
+task_status_history
+```
+
+and:
+
+```text id="x3v7n5"
+infrastructure_task_links
+```
+
+for operational work.
+
+Examples:
+
+- Configure Nginx
+- Configure SSL
+- Map domain
+- Configure DNS
+- Configure production environment
+- Configure database
+- Configure backup
+- Verify deployment
+- Perform go-live checklist
+- Production handover
+
+---
+
+# 21. Indexes
+
+At minimum:
+
+### project_infrastructure
+
+```text id="s2k7m9"
+project_id
+status
+created_by_id
+```
+
+### project_servers
+
+```text id="c8n4x6"
+project_infrastructure_id
+server_type
+environment
+provider
+is_active
+```
+
+### project_domains
+
+```text id="r5m8q2"
+project_infrastructure_id
+domain
+status
+environment
+```
+
+### dns_records
+
+```text id="w3x7k9"
+project_domain_id
+record_type
+name
+is_active
+```
+
+### ssl_certificates
+
+```text id="p6n2m8"
+project_infrastructure_id
+project_domain_id
+status
+expires_at
+```
+
+### project_go_live
+
+```text id="v4q8c1"
+project_id
+status
+planned_date
+actual_date
+```
+
+### go_live_checklist_items
+
+```text id="m7x3r9"
+project_go_live_id
+status
+category
+assigned_to_id
+```
+
+### infrastructure_task_links
+
+```text id="n5k2w8"
+task_id
+project_infrastructure_id
+project_server_id
+project_domain_id
+project_go_live_id
+```
+
+### production_handovers
+
+```text id="q8m4x2"
+project_id
+project_go_live_id
+status
+handover_date
+```
+
+### infrastructure_backups
+
+```text id="c7r9n3"
+project_infrastructure_id
+server_id
+status
+last_backup_at
+```
+
+Follow existing naming/index conventions.
+
+---
+
+# 22. Referential integrity
+
+Follow the existing Prisma relation/deletion conventions.
+
+Expected relationships:
+
+```text id="e9x3m7"
+Project
+  ↓
+ProjectInfrastructure
+  ├── Servers
+  ├── Domains
+  │    ├── DNS Records
+  │    └── SSL Certificates
+  ├── Backups
+  ├── Tasks
+  └── Go-Live
+        ├── Checklist
+        └── Handover
+```
+
+Historical infrastructure records must remain auditable.
+
+Do not let deleting/soft-deleting a user erase:
+
+- who configured the server
+- who performed go-live
+- who approved production
+- who completed handover
+
+Use nullable relationships/soft-delete conventions where required.
+
+---
+
+# 23. Security requirements
+
+Verify that no infrastructure model contains:
+
+```text id="j4x8m2"
+password
+secret
+private_key
+api_key
+token
+ssh_key
+database_password
+smtp_password
+access_token
+refresh_token
+```
+
+The following are acceptable:
+
+```text id="p7m3c9"
+credential_reference
+credential_name
+vault_reference
+notes
+```
+
+These are only references to external secret management.
+
+---
+
+# 24. Prisma implementation process
+
+Before editing:
+
+1. Inspect the current Prisma schema.
+2. Inspect:
+   - Project
+   - User
+   - ProjectTeam
+   - Task
+   - Sprint
+   - DevelopmentEnvironment
+   - DevelopmentDeployment
+   - Files
+   - ProjectResources
+3. Reuse existing enums.
+4. Reuse existing environment concepts wherever possible.
+5. Reuse existing deployment records.
+6. Reuse existing task system.
+7. Avoid duplicate infrastructure concepts.
+8. Ensure all relations have both Prisma sides.
+9. Follow existing naming conventions.
+10. Do not modify unrelated modules.
+
+---
+
+# 25. Migration
+
+Create exactly one migration.
+
+Example:
+
+```bash id="u5n8q2"
+npx prisma migrate dev --name add_system_admin_go_live
+```
+
+Do NOT run:
+
+```bash id="m7x3c9"
+npx prisma migrate reset
+```
+
+Do NOT delete or modify previous migrations.
+
+---
+
+# 26. Validation
+
+Run:
+
+```bash id="h9k4p2"
+npx prisma validate
+```
+
+Then:
+
+```bash id="x3m8q6"
+npx prisma generate
+```
+
+Run the project's existing:
+
+- TypeScript checks
+- lint
+- tests
+- build
+
+where applicable.
+
+Verify:
+
+- Migration succeeds.
+- Prisma schema validates.
+- Prisma Client generates.
+- Existing models compile.
+- Existing migrations remain untouched.
+- No unrelated schema changes were introduced.
+
+---
+
+# 27. Documentation
+
+Update the existing database/architecture documentation.
+
+Document:
+
+```text id="v8m2q4"
+Step 16 — System Administration / Go-Live
+```
+
+Include:
+
+- `project_infrastructure`
+- `project_servers`
+- `project_domains`
+- `dns_records`
+- `ssl_certificates`
+- `project_go_live`
+- `go_live_checklist_items`
+- `infrastructure_task_links`
+- `production_handovers`
+- `infrastructure_backups`
+
+Document these architecture decisions:
+
+```text id="z5q9m3"
+Infrastructure stores metadata, not secrets.
+Server credentials remain outside PostgreSQL.
+Existing development deployments are reused.
+Existing generic tasks are reused.
+Go-live uses checklist records.
+Production handover is separately tracked.
+Domains, DNS, and SSL are modeled independently.
+Infrastructure does not implement monitoring itself.
+Infrastructure does not implement CI/CD itself.
+```
+
+---
+
+# 28. Final verification checklist
+
+Before stopping, verify:
+
+## Infrastructure
+
+- [ ] `project_infrastructure` exists.
+- [ ] Infrastructure versions are supported.
+- [ ] Project/version uniqueness exists.
+- [ ] Infrastructure lifecycle status exists.
+
+## Servers
+
+- [ ] Servers exist.
+- [ ] Server types exist.
+- [ ] Providers exist.
+- [ ] Environment is supported.
+- [ ] Credential references can be stored.
+- [ ] No secrets are stored.
+
+## Domains
+
+- [ ] Domains exist.
+- [ ] Domain types exist.
+- [ ] Domain status exists.
+- [ ] Expiry can be tracked.
+- [ ] Auto-renew can be tracked.
+
+## DNS
+
+- [ ] DNS records exist.
+- [ ] Common record types exist.
+- [ ] No DNS credentials are stored.
+
+## SSL
+
+- [ ] SSL certificates exist.
+- [ ] Certificate status exists.
+- [ ] Expiry can be tracked.
+- [ ] Renewal method can be tracked.
+- [ ] Private keys are not stored.
+
+## Go-live
+
+- [ ] Go-live record exists.
+- [ ] Multiple go-live attempts are possible.
+- [ ] Go-live status exists.
+- [ ] Planned/actual dates exist.
+- [ ] Approval fields exist.
+
+## Checklist
+
+- [ ] Go-live checklist exists.
+- [ ] Checklist category exists.
+- [ ] Checklist status exists.
+- [ ] Required items are supported.
+- [ ] Assignment is supported.
+
+## Handover
+
+- [ ] Production handover exists.
+- [ ] Handover status exists.
+- [ ] Sender/receiver users are tracked.
+- [ ] Handover date exists.
+
+## Backup
+
+- [ ] Backup metadata exists.
+- [ ] Backup status exists.
+- [ ] Backup frequency/retention can be tracked.
+- [ ] No credentials are stored.
+
+## Tasks
+
+- [ ] Existing generic tasks are reused.
+- [ ] Infrastructure task links exist.
+- [ ] No infrastructure-specific task engine exists.
+
+## Resources
+
+- [ ] Existing files are reused.
+- [ ] Existing project resources are reused.
+- [ ] INFRASTRUCTURE resource type exists.
+
+## Architecture
+
+- [ ] No AWS services.
+- [ ] No organizations table.
+- [ ] No organization_id.
+- [ ] No tenant_id.
+- [ ] No duplicate deployment engine.
+- [ ] No duplicate task engine.
+- [ ] No secret storage.
+- [ ] No CI/CD engine.
+- [ ] No monitoring engine.
+- [ ] No AMC/support contract system.
+- [ ] No customer portal.
+- [ ] No calculated budget/progress source-of-truth fields added.
+
+---
+
+# STOP CONDITION
+
+After completing Step 16:
+
+1. Show me the files/models changed.
+2. Show me the migration name.
+3. Show me all System Administration-related Prisma models/enums added or modified.
+4. Show me any existing models/enums that were reused.
+5. Explicitly confirm that no passwords, API keys, SSH keys, tokens, or private keys are stored.
+6. Show validation results.
+7. Mention any existing schema conflicts that had to be resolved.
+8. Do NOT start Step 17.
+9. Do NOT implement HR.
+10. Do NOT implement notifications.
+11. Do NOT implement generic approvals.
+12. Do NOT implement AMC contracts.
+13. Do NOT implement monitoring.
+14. Do NOT implement CI/CD automation.
+15. Do NOT implement customer portal functionality.
+
+**STOP after Step 16 is fully validated.**

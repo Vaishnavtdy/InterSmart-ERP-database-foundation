@@ -30,7 +30,7 @@ blocking cycles before committing, and specify allowed cross-project links.
 Treat related links as directed stored associations unless a future policy
 normalizes them; don't introduce recursive triggers or a scheduler implicitly.
 
-UI/UX/Development/QA task links require same-project ownership and the matching workstream, but those
+UI/UX/Development/QA/Infrastructure task links require same-project ownership and the matching workstream, but those
 cross-table classification rules are a future service contract, not an FK
 guarantee. Validate subsequent ownership/workstream edits as well as link creation.
 
@@ -38,7 +38,9 @@ guarantee. Validate subsequent ownership/workstream edits as well as link creati
 entities and UI section/page, UX context/version or Development module/version
 containment without implementing lifecycle workflows. QA links intentionally
 allow independently nullable version/case/execution contexts; existence checks
-alone do not prove supplied contexts agree on a case or cycle.
+alone do not prove supplied contexts agree on a case or cycle. Infrastructure
+links likewise allow independently nullable server/domain/attempt/version
+contexts; validate ownership coherence without making a context mandatory.
 A link validated once can become invalid when either endpoint is later moved.
 
 **How to apply:** Check existing domain associations before changing task project or

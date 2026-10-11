@@ -127,6 +127,17 @@ model User {
   bugComments                 BugComment[]
   bugStatusChanges            BugStatusHistory[]
   createdBugAttachments       BugAttachment[]
+  createdInfrastructure       ProjectInfrastructure[]       @relation("InfrastructureCreator")
+  approvedInfrastructure      ProjectInfrastructure[]       @relation("InfrastructureApprover")
+  createdServers              ProjectServer[]
+  createdDomains              ProjectDomain[]
+  createdGoLiveAttempts       ProjectGoLive[]               @relation("GoLiveCreator")
+  approvedGoLiveAttempts      ProjectGoLive[]               @relation("GoLiveApprover")
+  completedGoLiveAttempts     ProjectGoLive[]               @relation("GoLiveCompleter")
+  assignedGoLiveItems         GoLiveChecklistItem[]         @relation("ChecklistAssignee")
+  completedGoLiveItems        GoLiveChecklistItem[]         @relation("ChecklistCompleter")
+  issuedHandovers             ProductionHandover[]          @relation("HandoverSender")
+  receivedHandovers           ProductionHandover[]          @relation("HandoverReceiver")
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -467,6 +478,7 @@ enum ProjectRole {
   QA
   SALES
   ACCOUNTS
+  SYSTEM_ADMIN
 }
 
 enum ProjectActionType {
@@ -487,50 +499,53 @@ enum ProjectActionStatus {
 }
 
 model Project {
-  id                   String                 @id @default(uuid()) @db.Uuid
-  projectCode          String                 @unique @map("project_code") @db.VarChar(32)
-  name                 String                 @db.VarChar(255)
-  customerId           String                 @map("customer_id") @db.Uuid
-  proposalId           String?                @map("proposal_id") @db.Uuid
-  salesPersonId        String                 @map("sales_person_id") @db.Uuid
-  projectManagerId     String?                @map("project_manager_id") @db.Uuid
-  projectCoordinatorId String?                @map("project_coordinator_id") @db.Uuid
-  categoryId           String                 @map("category_id") @db.Uuid
-  qualityLevel         ProjectQualityLevel?   @map("quality_level")
-  platform             ProjectPlatform?
-  pageCount            Int?                   @map("page_count")
-  priority             ProjectPriority        @default(MEDIUM)
-  status               ProjectStatus          @default(PLANNED)
-  startDate            DateTime?              @map("start_date") @db.Timestamptz(6)
-  plannedEndDate       DateTime?              @map("planned_end_date") @db.Timestamptz(6)
-  actualEndDate        DateTime?              @map("actual_end_date") @db.Timestamptz(6)
-  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt            DateTime?              @map("deleted_at") @db.Timestamptz(6)
-  customer             Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  proposal             Proposal?              @relation(fields: [proposalId], references: [id], onDelete: Restrict)
-  salesPerson          User                   @relation("ProjectSalesperson", fields: [salesPersonId], references: [id], onDelete: Restrict)
-  projectManager       User?                  @relation("ProjectManager", fields: [projectManagerId], references: [id], onDelete: SetNull)
-  projectCoordinator   User?                  @relation("ProjectCoordinator", fields: [projectCoordinatorId], references: [id], onDelete: SetNull)
-  category             ProjectCategory        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  team                 ProjectTeam[]
-  statusHistory        ProjectStatusHistory[]
-  comments             ProjectComment[]
-  actions              ProjectAction[]
-  scopes               ProjectScope[]
-  businessAnalysis     BusinessAnalysis?
-  files                File[]
-  resources            ProjectResource[]
-  budget               ProjectBudget?
-  paymentRequests      PaymentRequest[]
-  payments             Payment[]
-  tasks                Task[]
-  uiSpecifications     ProjectUi[]
-  uxSpecifications     ProjectUx[]
-  sprints              Sprint[]
-  developmentVersions  ProjectDevelopment[]
-  qaVersions           ProjectQa[]
-  bugs                 Bug[]
+  id                     String                  @id @default(uuid()) @db.Uuid
+  projectCode            String                  @unique @map("project_code") @db.VarChar(32)
+  name                   String                  @db.VarChar(255)
+  customerId             String                  @map("customer_id") @db.Uuid
+  proposalId             String?                 @map("proposal_id") @db.Uuid
+  salesPersonId          String                  @map("sales_person_id") @db.Uuid
+  projectManagerId       String?                 @map("project_manager_id") @db.Uuid
+  projectCoordinatorId   String?                 @map("project_coordinator_id") @db.Uuid
+  categoryId             String                  @map("category_id") @db.Uuid
+  qualityLevel           ProjectQualityLevel?    @map("quality_level")
+  platform               ProjectPlatform?
+  pageCount              Int?                    @map("page_count")
+  priority               ProjectPriority         @default(MEDIUM)
+  status                 ProjectStatus           @default(PLANNED)
+  startDate              DateTime?               @map("start_date") @db.Timestamptz(6)
+  plannedEndDate         DateTime?               @map("planned_end_date") @db.Timestamptz(6)
+  actualEndDate          DateTime?               @map("actual_end_date") @db.Timestamptz(6)
+  createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime?               @map("deleted_at") @db.Timestamptz(6)
+  customer               Customer                @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  proposal               Proposal?               @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  salesPerson            User                    @relation("ProjectSalesperson", fields: [salesPersonId], references: [id], onDelete: Restrict)
+  projectManager         User?                   @relation("ProjectManager", fields: [projectManagerId], references: [id], onDelete: SetNull)
+  projectCoordinator     User?                   @relation("ProjectCoordinator", fields: [projectCoordinatorId], references: [id], onDelete: SetNull)
+  category               ProjectCategory         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  team                   ProjectTeam[]
+  statusHistory          ProjectStatusHistory[]
+  comments               ProjectComment[]
+  actions                ProjectAction[]
+  scopes                 ProjectScope[]
+  businessAnalysis       BusinessAnalysis?
+  files                  File[]
+  resources              ProjectResource[]
+  budget                 ProjectBudget?
+  paymentRequests        PaymentRequest[]
+  payments               Payment[]
+  tasks                  Task[]
+  uiSpecifications       ProjectUi[]
+  uxSpecifications       ProjectUx[]
+  sprints                Sprint[]
+  developmentVersions    ProjectDevelopment[]
+  qaVersions             ProjectQa[]
+  bugs                   Bug[]
+  infrastructureVersions ProjectInfrastructure[]
+  goLiveAttempts         ProjectGoLive[]
+  productionHandovers    ProductionHandover[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -757,6 +772,7 @@ enum ProjectResourceType {
   DEVELOPMENT
   QA
   OTHER
+  INFRASTRUCTURE
 }
 
 model File {
@@ -1101,6 +1117,7 @@ enum TaskWorkstream {
   ACCOUNTS
   HR
   OTHER
+  SYSTEM_ADMIN
 }
 
 enum TaskStatus {
@@ -1120,44 +1137,45 @@ enum TaskDependencyType {
 }
 
 model Task {
-  id               String                @id @default(uuid()) @db.Uuid
-  projectId        String                @map("project_id") @db.Uuid
-  sprintId         String?               @map("sprint_id") @db.Uuid
-  parentTaskId     String?               @map("parent_task_id") @db.Uuid
-  taskCode         String                @unique @map("task_code") @db.VarChar(32)
-  title            String                @db.VarChar(255)
-  description      String?               @db.Text
-  taskType         TaskType              @default(GENERAL) @map("task_type")
-  workstream       TaskWorkstream        @default(OTHER)
-  status           TaskStatus            @default(TODO)
-  priority         ProjectPriority       @default(MEDIUM)
-  createdById      String                @map("created_by_id") @db.Uuid
-  assignedToId     String?               @map("assigned_to_id") @db.Uuid
-  startDate        DateTime?             @map("start_date") @db.Timestamptz(6)
-  dueDate          DateTime?             @map("due_date") @db.Timestamptz(6)
-  completedAt      DateTime?             @map("completed_at") @db.Timestamptz(6)
-  estimatedHours   Decimal?              @map("estimated_hours") @db.Decimal(10, 2)
-  actualHours      Decimal?              @map("actual_hours") @db.Decimal(10, 2)
-  sortOrder        Int                   @default(0) @map("sort_order")
-  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt        DateTime?             @map("deleted_at") @db.Timestamptz(6)
-  project          Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  sprint           Sprint?               @relation(fields: [projectId, sprintId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
-  parentTask       Task?                 @relation("TaskHierarchy", fields: [projectId, parentTaskId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
-  childTasks       Task[]                @relation("TaskHierarchy")
-  createdBy        User                  @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  assignedTo       User?                 @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
-  dependencies     TaskDependency[]      @relation("TaskDependencyOwner")
-  dependentTasks   TaskDependency[]      @relation("TaskDependencyTarget")
-  comments         TaskComment[]
-  statusHistory    TaskStatusHistory[]
-  assignments      TaskAssignment[]
-  uiLinks          UiTaskLink[]
-  uxLinks          UxTaskLink[]
-  developmentLinks DevelopmentTaskLink[]
-  qaLinks          QaTaskLink[]
-  bugLinks         BugTaskLink[]
+  id                  String                   @id @default(uuid()) @db.Uuid
+  projectId           String                   @map("project_id") @db.Uuid
+  sprintId            String?                  @map("sprint_id") @db.Uuid
+  parentTaskId        String?                  @map("parent_task_id") @db.Uuid
+  taskCode            String                   @unique @map("task_code") @db.VarChar(32)
+  title               String                   @db.VarChar(255)
+  description         String?                  @db.Text
+  taskType            TaskType                 @default(GENERAL) @map("task_type")
+  workstream          TaskWorkstream           @default(OTHER)
+  status              TaskStatus               @default(TODO)
+  priority            ProjectPriority          @default(MEDIUM)
+  createdById         String                   @map("created_by_id") @db.Uuid
+  assignedToId        String?                  @map("assigned_to_id") @db.Uuid
+  startDate           DateTime?                @map("start_date") @db.Timestamptz(6)
+  dueDate             DateTime?                @map("due_date") @db.Timestamptz(6)
+  completedAt         DateTime?                @map("completed_at") @db.Timestamptz(6)
+  estimatedHours      Decimal?                 @map("estimated_hours") @db.Decimal(10, 2)
+  actualHours         Decimal?                 @map("actual_hours") @db.Decimal(10, 2)
+  sortOrder           Int                      @default(0) @map("sort_order")
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?                @map("deleted_at") @db.Timestamptz(6)
+  project             Project                  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  sprint              Sprint?                  @relation(fields: [projectId, sprintId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  parentTask          Task?                    @relation("TaskHierarchy", fields: [projectId, parentTaskId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  childTasks          Task[]                   @relation("TaskHierarchy")
+  createdBy           User                     @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo          User?                    @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  dependencies        TaskDependency[]         @relation("TaskDependencyOwner")
+  dependentTasks      TaskDependency[]         @relation("TaskDependencyTarget")
+  comments            TaskComment[]
+  statusHistory       TaskStatusHistory[]
+  assignments         TaskAssignment[]
+  uiLinks             UiTaskLink[]
+  uxLinks             UxTaskLink[]
+  developmentLinks    DevelopmentTaskLink[]
+  qaLinks             QaTaskLink[]
+  bugLinks            BugTaskLink[]
+  infrastructureLinks InfrastructureTaskLink[]
 
   // Composite target key keeps children in their parent's project.
   @@unique([projectId, id])
@@ -1915,6 +1933,7 @@ model DevelopmentDeployment {
   id                   String                 @id @default(uuid()) @db.Uuid
   projectDevelopmentId String                 @map("project_development_id") @db.Uuid
   environmentId        String                 @map("environment_id") @db.Uuid
+  serverId             String?                @map("server_id") @db.Uuid
   deployedById         String                 @map("deployed_by_id") @db.Uuid
   version              String                 @db.VarChar(100)
   commitHash           String?                @map("commit_hash") @db.VarChar(128)
@@ -1927,9 +1946,12 @@ model DevelopmentDeployment {
   projectDevelopment   ProjectDevelopment     @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
   environment          DevelopmentEnvironment @relation(fields: [projectDevelopmentId, environmentId], references: [projectDevelopmentId, id], onDelete: Restrict, onUpdate: NoAction)
   deployedBy           User                   @relation(fields: [deployedById], references: [id], onDelete: Restrict)
+  server               ProjectServer?         @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  goLiveAttempts       ProjectGoLive[]
 
   @@index([projectDevelopmentId])
   @@index([environmentId])
+  @@index([serverId])
   @@index([deploymentStatus])
   @@index([deployedAt])
   @@index([deployedById])
@@ -2346,4 +2368,459 @@ model QaDailyReport {
   @@index([statusDate])
   @@index([createdById])
   @@map("qa_daily_status")
+}
+
+enum InfrastructureStatus {
+  DRAFT
+  PLANNING
+  IN_PROGRESS
+  READY
+  IN_REVIEW
+  APPROVED
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum ServerType {
+  APPLICATION
+  DATABASE
+  WEB
+  API
+  FILE_STORAGE
+  CACHE
+  PROXY
+  CI_CD
+  MONITORING
+  OTHER
+}
+
+enum InfrastructureProvider {
+  SELF_HOSTED
+  VPS
+  DEDICATED_SERVER
+  SHARED_HOSTING
+  HOSTINGER
+  GODADDY
+  DIGITALOCEAN
+  HETZNER
+  LINODE
+  OTHER
+}
+
+enum DomainType {
+  PRIMARY
+  SUBDOMAIN
+  API
+  ADMIN
+  STAGING
+  DEVELOPMENT
+  OTHER
+}
+
+enum DomainStatus {
+  PLANNED
+  ACTIVE
+  INACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum DnsRecordType {
+  A
+  AAAA
+  CNAME
+  MX
+  TXT
+  NS
+  SRV
+  CAA
+  OTHER
+}
+
+enum SslCertificateType {
+  LETS_ENCRYPT
+  COMMERCIAL
+  SELF_SIGNED
+  OTHER
+}
+
+enum SslCertificateStatus {
+  PENDING
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRED
+  REVOKED
+  CANCELLED
+}
+
+enum SslRenewalMethod {
+  CERTBOT
+  MANUAL
+  HOSTING_PANEL
+  OTHER
+}
+
+enum GoLiveStatus {
+  PLANNED
+  READY
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+  CANCELLED
+}
+
+enum GoLiveChecklistCategory {
+  SERVER
+  DOMAIN
+  DNS
+  SSL
+  DATABASE
+  APPLICATION
+  FILES
+  BACKUP
+  EMAIL
+  PAYMENT
+  SECURITY
+  SEO
+  ANALYTICS
+  TESTING
+  CLIENT_APPROVAL
+  DOCUMENTATION
+  OTHER
+}
+
+enum GoLiveChecklistStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+  NOT_APPLICABLE
+}
+
+enum HandoverStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum BackupType {
+  DATABASE
+  FILES
+  SERVER
+  APPLICATION
+  CONFIGURATION
+  OTHER
+}
+
+enum BackupStatus {
+  NOT_CONFIGURED
+  ACTIVE
+  WARNING
+  FAILED
+  DISABLED
+}
+
+model ProjectInfrastructure {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  projectId           String                   @map("project_id") @db.Uuid
+  versionNumber       Int                      @map("version_number")
+  title               String                   @db.VarChar(255)
+  description         String?                  @db.Text
+  status              InfrastructureStatus     @default(DRAFT)
+  infrastructureNotes String?                  @map("infrastructure_notes") @db.Text
+  monitoringEnabled   Boolean                  @default(false) @map("monitoring_enabled")
+  monitoringNotes     String?                  @map("monitoring_notes") @db.Text
+  monitoringUrl       String?                  @map("monitoring_url") @db.VarChar(2048)
+  createdById         String                   @map("created_by_id") @db.Uuid
+  approvedById        String?                  @map("approved_by_id") @db.Uuid
+  approvedAt          DateTime?                @map("approved_at") @db.Timestamptz(6)
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project             Project                  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy           User                     @relation("InfrastructureCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy          User?                    @relation("InfrastructureApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  servers             ProjectServer[]
+  domains             ProjectDomain[]
+  dnsRecords          DnsRecord[]
+  sslCertificates     SslCertificate[]
+  goLiveAttempts      ProjectGoLive[]
+  taskLinks           InfrastructureTaskLink[]
+  backups             InfrastructureBackup[]
+
+  @@unique([projectId, versionNumber])
+  @@unique([projectId, id])
+  @@index([status])
+  @@index([createdById])
+  @@index([approvedById])
+  @@index([createdAt])
+  @@map("project_infrastructure")
+}
+
+model ProjectServer {
+  id                      String                     @id @default(uuid()) @db.Uuid
+  projectInfrastructureId String                     @map("project_infrastructure_id") @db.Uuid
+  name                    String                     @db.VarChar(255)
+  serverType              ServerType                 @default(OTHER) @map("server_type")
+  provider                InfrastructureProvider     @default(OTHER)
+  hostname                String?                    @db.VarChar(255)
+  ipAddress               String?                    @map("ip_address") @db.VarChar(45)
+  operatingSystem         String?                    @map("operating_system") @db.VarChar(100)
+  osVersion               String?                    @map("os_version") @db.VarChar(100)
+  environment             DevelopmentEnvironmentType @default(OTHER)
+  region                  String?                    @db.VarChar(100)
+  datacenter              String?                    @db.VarChar(100)
+  description             String?                    @db.Text
+  isActive                Boolean                    @default(true) @map("is_active")
+  credentialReference     String?                    @map("credential_reference") @db.VarChar(255)
+  createdById             String                     @map("created_by_id") @db.Uuid
+  createdAt               DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectInfrastructure   ProjectInfrastructure      @relation(fields: [projectInfrastructureId], references: [id], onDelete: Restrict)
+  createdBy               User                       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  deployments             DevelopmentDeployment[]
+  domains                 ProjectDomain[]
+  taskLinks               InfrastructureTaskLink[]
+  backups                 InfrastructureBackup[]
+
+  @@unique([projectInfrastructureId, id])
+  @@index([projectInfrastructureId, isActive])
+  @@index([serverType])
+  @@index([environment])
+  @@index([provider])
+  @@index([isActive])
+  @@index([createdById])
+  @@map("project_servers")
+}
+
+model ProjectDomain {
+  id                      String                     @id @default(uuid()) @db.Uuid
+  projectInfrastructureId String                     @map("project_infrastructure_id") @db.Uuid
+  serverId                String?                    @map("server_id") @db.Uuid
+  domain                  String                     @unique @db.VarChar(253)
+  domainType              DomainType                 @default(OTHER) @map("domain_type")
+  environment             DevelopmentEnvironmentType @default(OTHER)
+  provider                InfrastructureProvider     @default(OTHER)
+  isPrimary               Boolean                    @default(false) @map("is_primary")
+  status                  DomainStatus               @default(PLANNED)
+  expiresAt               DateTime?                  @map("expires_at") @db.Timestamptz(6)
+  autoRenew               Boolean                    @default(false) @map("auto_renew")
+  notes                   String?                    @db.Text
+  createdById             String                     @map("created_by_id") @db.Uuid
+  createdAt               DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectInfrastructure   ProjectInfrastructure      @relation(fields: [projectInfrastructureId], references: [id], onDelete: Restrict)
+  server                  ProjectServer?             @relation(fields: [projectInfrastructureId, serverId], references: [projectInfrastructureId, id], onDelete: Restrict, onUpdate: NoAction)
+  createdBy               User                       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  dnsRecords              DnsRecord[]
+  sslCertificates         SslCertificate[]
+  taskLinks               InfrastructureTaskLink[]
+
+  @@unique([projectInfrastructureId, id])
+  @@index([status])
+  @@index([environment])
+  @@index([serverId])
+  @@index([createdById])
+  @@index([expiresAt])
+  @@map("project_domains")
+}
+
+model DnsRecord {
+  id                      String                @id @default(uuid()) @db.Uuid
+  projectInfrastructureId String                @map("project_infrastructure_id") @db.Uuid
+  projectDomainId         String                @map("project_domain_id") @db.Uuid
+  recordType              DnsRecordType         @default(OTHER) @map("record_type")
+  name                    String                @db.VarChar(255)
+  value                   String                @db.Text
+  ttl                     Int?                  @db.Integer
+  priority                Int?                  @db.Integer
+  isActive                Boolean               @default(true) @map("is_active")
+  notes                   String?               @db.Text
+  createdAt               DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectInfrastructure   ProjectInfrastructure @relation(fields: [projectInfrastructureId], references: [id], onDelete: Restrict)
+  projectDomain           ProjectDomain         @relation(fields: [projectInfrastructureId, projectDomainId], references: [projectInfrastructureId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([projectInfrastructureId])
+  @@index([projectDomainId])
+  @@index([recordType])
+  @@index([name])
+  @@index([isActive])
+  @@map("dns_records")
+}
+
+model SslCertificate {
+  id                      String                @id @default(uuid()) @db.Uuid
+  projectInfrastructureId String                @map("project_infrastructure_id") @db.Uuid
+  projectDomainId         String?               @map("project_domain_id") @db.Uuid
+  certificateName         String                @map("certificate_name") @db.VarChar(255)
+  issuer                  String?               @db.VarChar(255)
+  certificateType         SslCertificateType    @default(OTHER) @map("certificate_type")
+  status                  SslCertificateStatus  @default(PENDING)
+  issuedAt                DateTime?             @map("issued_at") @db.Timestamptz(6)
+  expiresAt               DateTime?             @map("expires_at") @db.Timestamptz(6)
+  autoRenew               Boolean               @default(false) @map("auto_renew")
+  renewalMethod           SslRenewalMethod      @default(OTHER) @map("renewal_method")
+  notes                   String?               @db.Text
+  createdAt               DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectInfrastructure   ProjectInfrastructure @relation(fields: [projectInfrastructureId], references: [id], onDelete: Restrict)
+  projectDomain           ProjectDomain?        @relation(fields: [projectInfrastructureId, projectDomainId], references: [projectInfrastructureId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([projectInfrastructureId])
+  @@index([projectDomainId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("ssl_certificates")
+}
+
+model ProjectGoLive {
+  id                      String                   @id @default(uuid()) @db.Uuid
+  projectId               String                   @map("project_id") @db.Uuid
+  projectInfrastructureId String                   @map("project_infrastructure_id") @db.Uuid
+  deploymentId            String?                  @map("deployment_id") @db.Uuid
+  plannedDate             DateTime?                @map("planned_date") @db.Timestamptz(6)
+  actualDate              DateTime?                @map("actual_date") @db.Timestamptz(6)
+  status                  GoLiveStatus             @default(PLANNED)
+  productionUrl           String?                  @map("production_url") @db.VarChar(2048)
+  goLiveNotes             String?                  @map("go_live_notes") @db.Text
+  rollbackNotes           String?                  @map("rollback_notes") @db.Text
+  approvedById            String?                  @map("approved_by_id") @db.Uuid
+  approvedAt              DateTime?                @map("approved_at") @db.Timestamptz(6)
+  completedById           String?                  @map("completed_by_id") @db.Uuid
+  completedAt             DateTime?                @map("completed_at") @db.Timestamptz(6)
+  createdById             String                   @map("created_by_id") @db.Uuid
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project                 Project                  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  projectInfrastructure   ProjectInfrastructure    @relation(fields: [projectId, projectInfrastructureId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  deployment              DevelopmentDeployment?   @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
+  approvedBy              User?                    @relation("GoLiveApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  completedBy             User?                    @relation("GoLiveCompleter", fields: [completedById], references: [id], onDelete: Restrict)
+  createdBy               User                     @relation("GoLiveCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  checklistItems          GoLiveChecklistItem[]
+  handovers               ProductionHandover[]
+  taskLinks               InfrastructureTaskLink[]
+
+  @@unique([projectId, id])
+  @@index([projectId, status])
+  @@index([projectInfrastructureId])
+  @@index([deploymentId])
+  @@index([status])
+  @@index([plannedDate])
+  @@index([actualDate])
+  @@index([approvedById])
+  @@index([completedById])
+  @@index([createdById])
+  @@map("project_go_live")
+}
+
+model GoLiveChecklistItem {
+  id              String                  @id @default(uuid()) @db.Uuid
+  projectGoLiveId String                  @map("project_go_live_id") @db.Uuid
+  title           String                  @db.VarChar(255)
+  description     String?                 @db.Text
+  category        GoLiveChecklistCategory @default(OTHER)
+  status          GoLiveChecklistStatus   @default(PENDING)
+  isRequired      Boolean                 @default(true) @map("is_required")
+  sortOrder       Int                     @default(0) @map("sort_order")
+  assignedToId    String?                 @map("assigned_to_id") @db.Uuid
+  completedById   String?                 @map("completed_by_id") @db.Uuid
+  completedAt     DateTime?               @map("completed_at") @db.Timestamptz(6)
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectGoLive   ProjectGoLive           @relation(fields: [projectGoLiveId], references: [id], onDelete: Restrict)
+  assignedTo      User?                   @relation("ChecklistAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  completedBy     User?                   @relation("ChecklistCompleter", fields: [completedById], references: [id], onDelete: Restrict)
+
+  @@index([projectGoLiveId, sortOrder])
+  @@index([status])
+  @@index([category])
+  @@index([assignedToId])
+  @@index([completedById])
+  @@map("go_live_checklist_items")
+}
+
+model InfrastructureTaskLink {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  taskId                  String                 @map("task_id") @db.Uuid
+  projectInfrastructureId String?                @map("project_infrastructure_id") @db.Uuid
+  projectServerId         String?                @map("project_server_id") @db.Uuid
+  projectDomainId         String?                @map("project_domain_id") @db.Uuid
+  projectGoLiveId         String?                @map("project_go_live_id") @db.Uuid
+  createdAt               DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  task                    Task                   @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  projectInfrastructure   ProjectInfrastructure? @relation(fields: [projectInfrastructureId], references: [id], onDelete: Restrict)
+  projectServer           ProjectServer?         @relation(fields: [projectServerId], references: [id], onDelete: Restrict)
+  projectDomain           ProjectDomain?         @relation(fields: [projectDomainId], references: [id], onDelete: Restrict)
+  projectGoLive           ProjectGoLive?         @relation(fields: [projectGoLiveId], references: [id], onDelete: Restrict)
+
+  // SQL expression index deduplicates all nullable context combinations.
+  @@index([taskId])
+  @@index([projectInfrastructureId])
+  @@index([projectServerId])
+  @@index([projectDomainId])
+  @@index([projectGoLiveId])
+  @@map("infrastructure_task_links")
+}
+
+model ProductionHandover {
+  id                     String         @id @default(uuid()) @db.Uuid
+  projectId              String         @map("project_id") @db.Uuid
+  projectGoLiveId        String         @map("project_go_live_id") @db.Uuid
+  handedOverById         String         @map("handed_over_by_id") @db.Uuid
+  receivedById           String?        @map("received_by_id") @db.Uuid
+  handoverDate           DateTime?      @map("handover_date") @db.Timestamptz(6)
+  status                 HandoverStatus @default(DRAFT)
+  applicationUrl         String?        @map("application_url") @db.VarChar(2048)
+  adminUrl               String?        @map("admin_url") @db.VarChar(2048)
+  documentationCompleted Boolean        @default(false) @map("documentation_completed")
+  backupConfigured       Boolean        @default(false) @map("backup_configured")
+  monitoringConfigured   Boolean        @default(false) @map("monitoring_configured")
+  sslConfigured          Boolean        @default(false) @map("ssl_configured")
+  domainConfigured       Boolean        @default(false) @map("domain_configured")
+  notes                  String?        @db.Text
+  supportNotes           String?        @map("support_notes") @db.Text
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project                Project        @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  projectGoLive          ProjectGoLive  @relation(fields: [projectId, projectGoLiveId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  handedOverBy           User           @relation("HandoverSender", fields: [handedOverById], references: [id], onDelete: Restrict)
+  receivedBy             User?          @relation("HandoverReceiver", fields: [receivedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@index([projectGoLiveId])
+  @@index([status])
+  @@index([handoverDate])
+  @@index([handedOverById])
+  @@index([receivedById])
+  @@map("production_handovers")
+}
+
+model InfrastructureBackup {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  projectInfrastructureId String                 @map("project_infrastructure_id") @db.Uuid
+  serverId                String?                @map("server_id") @db.Uuid
+  backupType              BackupType             @default(OTHER) @map("backup_type")
+  provider                InfrastructureProvider @default(OTHER)
+  frequency               String?                @db.VarChar(100)
+  retentionPeriod         String?                @map("retention_period") @db.VarChar(100)
+  lastBackupAt            DateTime?              @map("last_backup_at") @db.Timestamptz(6)
+  status                  BackupStatus           @default(NOT_CONFIGURED)
+  notes                   String?                @db.Text
+  createdAt               DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectInfrastructure   ProjectInfrastructure  @relation(fields: [projectInfrastructureId], references: [id], onDelete: Restrict)
+  server                  ProjectServer?         @relation(fields: [projectInfrastructureId, serverId], references: [projectInfrastructureId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([projectInfrastructureId])
+  @@index([serverId])
+  @@index([status])
+  @@index([lastBackupAt])
+  @@index([backupType])
+  @@index([provider])
+  @@map("infrastructure_backups")
 }

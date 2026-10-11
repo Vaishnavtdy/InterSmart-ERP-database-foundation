@@ -1245,3 +1245,182 @@ Regression testing uses QaTestType.REGRESSION and repeated executions; no
 regression table, duplicated Development module or environment, task/team/storage
 engine, organization/tenant, notifications, generic approvals, HR, time tracking,
 CI/CD, customer portal, AWS, frontend or APIs are added. No seed changes needed.
+
+## Step 16 — System Administration / Go-Live
+
+Migration: `20261011084532_add_system_admin_go_live`. Ten tables, fifteen enums,
+three existing enum additions and nullable DevelopmentDeployment.serverId are
+introduced. Existing User, Project and Task receive inverse relations only.
+All previous migrations, QA/Development environment records and generic Sprint
+fields/relationships are retained. No seed data is necessary.
+
+### Infrastructure models and metadata
+
+All keys are UUID. All models have createdAt (default now); all except the
+created-only InfrastructureTaskLink have Prisma-managed updatedAt TIMESTAMPTZ(6).
+Raw SQL writers must supply/update updatedAt where present. All other
+dates use TIMESTAMPTZ(6), including plannedDate/actualDate/handoverDate, not DATE.
+Names/titles use VARCHAR(255), URLs VARCHAR(2048), narrative notes TEXT.
+
+| Model / table | Required fields besides id/applicable timestamps | Nullable fields |
+| --- | --- | --- |
+| ProjectInfrastructure / project_infrastructure | projectId, positive versionNumber, title, status (DRAFT), monitoringEnabled (false), createdById | description, infrastructureNotes, monitoringNotes, monitoringUrl, approvedById, approvedAt |
+| ProjectServer / project_servers | projectInfrastructureId, name, serverType (OTHER), provider (OTHER), reused environment (OTHER), isActive (true), createdById | hostname VARCHAR(255), ipAddress VARCHAR(45), operatingSystem/osVersion/region/datacenter VARCHAR(100), description, credentialReference VARCHAR(255) |
+| ProjectDomain / project_domains | projectInfrastructureId, domain VARCHAR(253), domainType (OTHER), reused environment (OTHER), provider (OTHER), isPrimary (false), status (PLANNED), autoRenew (false), createdById | serverId, expiresAt, notes |
+| DnsRecord / dns_records | projectInfrastructureId, projectDomainId, recordType (OTHER), name VARCHAR(255), value TEXT, isActive (true) | ttl INTEGER, priority INTEGER, notes |
+| SslCertificate / ssl_certificates | projectInfrastructureId, certificateName, certificateType (OTHER), status (PENDING), autoRenew (false), renewalMethod (OTHER) | projectDomainId, issuer, issuedAt, expiresAt, notes |
+| ProjectGoLive / project_go_live | projectId, projectInfrastructureId, status (PLANNED), createdById | deploymentId, plannedDate, actualDate, productionUrl, goLiveNotes, rollbackNotes, approvedById, approvedAt, completedById, completedAt |
+| GoLiveChecklistItem / go_live_checklist_items | projectGoLiveId, title, category (OTHER), status (PENDING), isRequired (true), sortOrder (0) | description, assignedToId, completedById, completedAt |
+| InfrastructureTaskLink / infrastructure_task_links | taskId | projectInfrastructureId, projectServerId, projectDomainId, projectGoLiveId |
+| ProductionHandover / production_handovers | projectId, projectGoLiveId, handedOverById, status (DRAFT), documentationCompleted/backupConfigured/monitoringConfigured/sslConfigured/domainConfigured (false) | receivedById, handoverDate, applicationUrl, adminUrl, notes, supportNotes |
+| InfrastructureBackup / infrastructure_backups | projectInfrastructureId, backupType (OTHER), provider (OTHER), status (NOT_CONFIGURED) | serverId, frequency/retentionPeriod VARCHAR(100), lastBackupAt, notes |
+
+Infrastructure is Project-owned, versioned and unique by project/version.
+Approval actor/time are optional together. Monitoring fields are manual metadata,
+not monitoring implementations. False configuration flags mean not recorded as
+configured; lifecycle services may decide when evidence is required.
+
+Servers support IPv4/IPv6 textual addresses, provider OTHER, optional hostname/
+OS/location metadata and external credential references. Address/hostname shape
+and safe external-reference format are future service validation, not networking.
+Server operational assignment uses common Task assignedTo/assignment history and
+InfrastructureTaskLink.projectServerId; staffing uses existing ProjectTeam.
+No server-specific assignment history/team/task engine is added.
+
+Domains are globally unique, with an additional case-insensitive expression
+index. This follows requested unique(domain); no cross-project domain-sharing
+requirement currently exists. Future writers normalize IDNA/trailing dots and
+validate bare hostnames. New infrastructure versions do not silently clone or
+reparent globally owned domains; Project-level queries may aggregate versions.
+Domain uniqueness is not an isPrimary-per-project constraint. Primary designation
+and domain type remain independently stored metadata.
+Optional hosting server must belong to the same infrastructure version.
+
+DNS has extra required projectInfrastructureId to provide the requested direct
+ProjectInfrastructure.dnsRecords relation and direct infrastructure lookup.
+Composite domain/owner FK enforces consistent ownership; this is not duplicated
+DNS content. Names/types can have multiple values (e.g. several A/MX/TXT records).
+TTL can be unknown or >=0 (zero valid); optional priority is 0..65535. These
+are DNS numeric metadata, not generic ProjectPriority.
+
+Certificates track metadata only. Nullable domain supports wildcard/multi-domain
+certificates; certificateName/notes can describe coverage without a SAN engine or
+assuming one certificate equals one domain. If a domain is present it must belong
+to the same infrastructure version. Known expiry cannot precede known issuance.
+Expiry/renewal statuses are manually recorded; no renewal or expiration scheduler.
+
+### Go-live, deployments, checklist and handover
+
+There is NO unique(projectId) on ProjectGoLive. A project/infrastructure version
+can have multiple failed/rolled-back/completed attempts. Planned/actual dates are
+independent and may be unknown; actual may precede planned. Creator is required;
+approver/time and completer/time are nullable pairs. No go_live_approvals table.
+Go-live references the same-project infrastructure version using a composite FK.
+Optional deploymentId references existing DevelopmentDeployment rather than
+copying its result/commit/environment/actor history into a new deployment ledger.
+
+DevelopmentDeployment receives optional serverId, server relation, index and
+goLiveAttempts inverse. Existing rows remain valid NULL; existing environment,
+version, deployment result and actor fields are unchanged. ProjectServer exposes
+deployments. Services must verify deployment's Development Project matches
+server's Infrastructure Project and go-live Project, including subsequent moves.
+No duplicate Development environment or direct server/domain many-to-many table.
+
+Checklist items have required/optional flags, category, state, sort order and
+optional responsible/completing employees. Order is nonnegative and need not
+be unique. Completion actor/time are paired, without CHECKs for the whole
+state machine. Future services authorize edits and serialize checklist/attempt
+writes when gating READY/COMPLETED on required items, approval and QA readiness.
+No automatic deployment, prerequisite checks, project status update or approval
+workflow occurs at database level.
+
+Handover is a separate same-project go-live-linked operational record. Sender
+is required even for a draft; receiver/date may be unknown before actual handover.
+Several records are allowed for phased/rejected/repeated handovers. Configuration
+flags and URLs are manually recorded; they do not configure services. Support
+notes are narrative handover context, not AMC/support contract records.
+
+Backups are configuration/health metadata. Optional server must match the owning
+infrastructure version. Frequency and retentionPeriod are human-readable labels
+(e.g. "daily", "30 days"), not executable schedules or byte counts. Provider reuses
+InfrastructureProvider; OTHER plus notes covers other backup storage providers.
+No backup payload, credentials, cron jobs, restoration or monitoring engine.
+
+### Task/team/resource reuse and contextual links
+
+- TaskWorkstream.SYSTEM_ADMIN added; existing values/defaults preserved.
+- ProjectRole.SYSTEM_ADMIN added for existing ProjectTeam staffing; department
+  remains historical assignment context. This is a project staffing enum, not
+  a new authentication role/permission system.
+- ProjectResourceType.INFRASTRUCTURE added; File/ProjectResource and MinIO reused.
+- TaskType values suffice (DEPLOYMENT, REVIEW, DOCUMENTATION, OTHER, etc.).
+- Generic Sprint already accepts TaskWorkstream; no Sprint changes or new table.
+- Task only adds infrastructureLinks inverse, not a new scalar/task engine.
+
+All four InfrastructureTaskLink contexts independently nullable; taskId required.
+Each has its own FK, including server/domain/attempt-only links. SQL expression
+uniqueness deduplicates all sixteen context combinations for a task; different
+contexts can coexist. Prisma cannot express this migration-owned expression index.
+Services validate supplied context Project/version coherence, SYSTEM_ADMIN
+workstream, authorization and later endpoint moves. Contextless links support
+project-level operations. Existing task status/history/assignment contracts apply.
+Files are existing exact physical revisions; no private keys/credentials should
+be uploaded or copied into MinIO documentation.
+
+### Enums
+
+- InfrastructureStatus: DRAFT, PLANNING, IN_PROGRESS, READY, IN_REVIEW,
+  APPROVED, COMPLETED, ON_HOLD, CANCELLED.
+- ServerType: APPLICATION, DATABASE, WEB, API, FILE_STORAGE, CACHE, PROXY,
+  CI_CD, MONITORING, OTHER. CI_CD/MONITORING classify servers, not implementations.
+- InfrastructureProvider: SELF_HOSTED, VPS, DEDICATED_SERVER, SHARED_HOSTING,
+  HOSTINGER, GODADDY, DIGITALOCEAN, HETZNER, LINODE, OTHER.
+- DomainType: PRIMARY, SUBDOMAIN, API, ADMIN, STAGING, DEVELOPMENT, OTHER.
+- DomainStatus: PLANNED, ACTIVE, INACTIVE, EXPIRED, CANCELLED.
+- DnsRecordType: A, AAAA, CNAME, MX, TXT, NS, SRV, CAA, OTHER.
+- SslCertificateType: LETS_ENCRYPT, COMMERCIAL, SELF_SIGNED, OTHER.
+- SslCertificateStatus: PENDING, ACTIVE, EXPIRING_SOON, EXPIRED, REVOKED, CANCELLED.
+- SslRenewalMethod: CERTBOT, MANUAL, HOSTING_PANEL, OTHER.
+- GoLiveStatus: PLANNED, READY, IN_PROGRESS, COMPLETED, FAILED, ROLLED_BACK, CANCELLED.
+- GoLiveChecklistCategory: SERVER, DOMAIN, DNS, SSL, DATABASE, APPLICATION,
+  FILES, BACKUP, EMAIL, PAYMENT, SECURITY, SEO, ANALYTICS, TESTING,
+  CLIENT_APPROVAL, DOCUMENTATION, OTHER.
+- GoLiveChecklistStatus: PENDING, IN_PROGRESS, COMPLETED, BLOCKED, NOT_APPLICABLE.
+- HandoverStatus: DRAFT, IN_PROGRESS, COMPLETED, REJECTED, CANCELLED.
+- BackupType: DATABASE, FILES, SERVER, APPLICATION, CONFIGURATION, OTHER.
+- BackupStatus: NOT_CONFIGURED, ACTIVE, WARNING, FAILED, DISABLED.
+
+Server/domain environment reuses DevelopmentEnvironmentType unchanged:
+LOCAL, DEVELOPMENT, STAGING, UAT, PRODUCTION, OTHER.
+
+### Integrity, indexes and security boundaries
+
+All 33 new FKs (including existing deployment.serverId) RESTRICT deletion.
+Composite context updates use NO ACTION. User/project soft deletion retains
+creator/approver/completer/handover attribution. RESTRICT is not an immutable
+metadata/history engine; future services retain finalized version/attempt and
+handover identities instead of relabeling old operations.
+
+Infrastructure project/version unique index covers project lookup; status/actors/
+created date indexed. Servers index owner/isActive, type, environment, provider,
+isActive and creator. Domains index global name, owner, status, environment,
+server, creator and expiry. DNS indexes owner/domain, type, name and active flag.
+Certificates index owner/domain, status and expiry. Go-live indexes project/
+status, owner, deployment, status, planned/actual dates and all actors.
+Checklist indexes parent/order, status/category, assignee/completer.
+Task links index task and every context. Handovers index project/attempt, status,
+date and both employees. Backups index owner/server, status/lastBackupAt,
+type/provider. Existing deployment optional serverId is indexed.
+
+No infrastructure column holds passwords, API keys, SSH keys, access/refresh
+tokens, database/SMTP/MinIO secrets or TLS private keys. credentialReference is
+an external identifier only, never a credential value or authenticated URL.
+DNS values are published DNS metadata, not provider credentials. Freeform TEXT
+and URLs cannot guarantee a caller never submits a secret: future writers must
+reject credentials/embedded URL secrets, redact sensitive metadata, enforce
+non-secret reference formats and reject private-key/credential document uploads.
+Actual credentials remain outside PostgreSQL and this ERP file system.
+
+No AWS, organizations/tenant fields, new deployment/task/team/file engine,
+calculated budget/progress, HR, notifications, generic approvals, AMC contracts,
+monitoring engine, CI/CD, portal, frontend, APIs or Step 17 work is implemented.

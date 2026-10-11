@@ -894,3 +894,51 @@
   sprint FK/index are unchanged. Sprint itself is unchanged; QA can already use it.
 - No CI/CD, notifications, generic approvals, HR, time tracking, portal, AWS,
   calculated balances/progress, tenant fields, frontend/API or seed records.
+
+## Step 16 — System Administration / Go-Live
+
+- Infrastructure stores operational metadata only, with Project-owned positive
+  unique versions. Monitoring enabled/notes/URL are manually recorded flags.
+- Server/domain environments reuse DevelopmentEnvironmentType; provider uses
+  new generic InfrastructureProvider with OTHER allowed. No parallel environment
+  engine. Server credentialReference is a non-secret external identifier only.
+- Existing DevelopmentDeployment gains nullable serverId and inverse go-live
+  links; ProjectGoLive may reference existing deploymentId. No deployment history
+  rewrite or duplication. Cross-module Project alignment remains future service
+  validation, including later owner/version/server edits.
+- Domains use requested global uniqueness plus case-insensitive expression index.
+  There is no known cross-project sharing requirement. Domain normalization and
+  IDNA/trailing-dot policies remain services. New versions do not silently clone
+  globally owned domains; Project queries may aggregate multiple versions.
+- Optional domain.serverId must match infrastructure version via composite FK.
+  DNS includes infrastructure ID to expose requested direct owner relation;
+  composite owner/domain FK prevents redundant-owner mismatch. DNS TTL/priority
+  are numeric DNS metadata (nullable >=0 / 0..65535), not ProjectPriority.
+- SSL optional domain supports wildcard/multi-domain metadata. Owner/domain
+  containment enforced, known expiry/issue date ordered. No SAN model, PEM/private
+  key, credential, renewal scheduler or external certificate integration.
+- Multiple go-live attempts allowed without unique(projectId). Same-project
+  infrastructure and handover/attempt containment enforced. Creator required;
+  approval/completion actor/time paired but no lifecycle CHECK/state machine.
+- Checklist required flags/order/assignment/completion are recorded, not automatic
+  release gates. Future services serialize parent/child edits for readiness
+  decisions and enforce authorization, approval and QA-release policies.
+- ProductionHandover tracks sender/nullable receiver/date/configuration flags/
+  URLs/support notes, not a duplicate go-live or AMC engine. Repeated handovers
+  allowed. Backup provider/frequency/retention/last-run/state are metadata only.
+- TaskWorkstream.SYSTEM_ADMIN and ProjectRole.SYSTEM_ADMIN extend existing
+  task/sprint and team staffing enums; resource INFRASTRUCTURE extends existing
+  File/ProjectResource classification. No new auth roles/task/team/storage system.
+- Task links require only task; four independently nullable FK contexts permit
+  project operations without a version or leaf. Expression index deduplicates
+  sixteen context patterns. Cross-context Project/version/workstream validation
+  and ownership revalidation are service contracts, not a graph engine.
+- All 33 new FKs RESTRICT. Actor/project soft deletion retains attribution.
+  Finalized operational metadata retention is a future service contract, not
+  append-only DB history or automatic Project-status synchronization.
+- No secret-bearing fields. Arbitrary notes/URL/credentialReference/DNS values
+  still require service redaction and external-identifier validation; private-key
+  or credential uploads are not permitted. No claim that SQL TEXT prevents
+  malicious callers from embedding secrets.
+- No monitoring, CI/CD, notifications, HR, generic approvals, AMC, portal,
+  AWS, tenant fields, calculated balances/progress, frontend/API or seed data.

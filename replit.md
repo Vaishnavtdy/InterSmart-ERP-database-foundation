@@ -92,6 +92,13 @@ status history is append-only, and current-state/history writes must be atomic.
 Test cases are reusable definitions; executions are individual runs. QA builds
 are manually recorded metadata, not CI/CD. Daily completion is a snapshot.
 
+System Administration stores infrastructure/server/domain/DNS/SSL/go-live,
+handover and backup metadata, never secrets. Credential references identify
+external secret-manager entries only. Operational assignments use common tasks
+and SYSTEM_ADMIN project staffing; documents use INFRASTRUCTURE resource type.
+Deployments are reused, not duplicated. Monitoring/backup/CI-CD execution is
+outside this ERP; configuration flags do not configure those services.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

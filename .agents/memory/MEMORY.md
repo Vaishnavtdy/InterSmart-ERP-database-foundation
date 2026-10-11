@@ -4,3 +4,4 @@
 - [Budget ledger contracts](budget-ledger-contracts.md) — opening funding must not be counted twice; allocation movements and reversals need explicit accounting classification.
 - [Payment write contracts](payment-write-contracts.md) — future writers must coordinate receipt status, immutable history, request state, and ownership/currency validation.
 - [Task write contracts](task-write-contracts.md) — serialize current-assignee/history changes; cycle validation and graph policy remain future service responsibilities.
+- [Infrastructure write contracts](infrastructure-write-contracts.md) — validate cross-module Project ownership and serialize go-live readiness/checklist writes.

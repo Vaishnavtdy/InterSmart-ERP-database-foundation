@@ -942,3 +942,48 @@
   malicious callers from embedding secrets.
 - No monitoring, CI/CD, notifications, HR, generic approvals, AMC, portal,
   AWS, tenant fields, calculated balances/progress, frontend/API or seed data.
+
+## Step 17 — HR foundation
+
+- Thirteen requested HR entities plus typed HrTaskLink; existing User/Department,
+  Task and File identities reused. No duplicate employee/auth/task/storage engine.
+- HR was already a TaskWorkstream value; ProjectPriority reused for complaints.
+  Ten new enums capture HR lifecycle/classification/visibility and FileCategory.
+- No canonical roles/permissions/user_roles/role_permissions structure exists.
+  Conditional permission seeds skipped, not replaced with new RBAC tables or
+  automatically assigned roles. ProjectRole is staffing, not authorization.
+- LeaveType configurable rows with no example seeds. Balance unique employee/
+  type/year, Decimal(10,2) counters and signed corrections. Remaining leave always
+  calculated; no overdraw/carryover/working-day policy assumed or auto accrual.
+- Leave submission field required/default now as requested, including drafts.
+  Actual submission is inferred from lifecycle, never timestamp presence alone.
+  Decision actor/time paired and not inferred from manager. Services coordinate
+  status/history and balance changes atomically with idempotent reversals.
+- Performance cycle/employee review unique. Required actual reviewer, optional
+  nonnegative Decimal(10,4) rating/goal weight, no invented 1..5 or 100% scale.
+  Target/achieved values TEXT permit qualitative/unit-bearing goals. No aggregate
+  progress/performance calculation or specialized review-type tables.
+- Complaints confidential and comments internal by default. Priority enum sharing
+  does not inherit project/customer permissions. Appreciation defaults PRIVATE;
+  TEAM visibility audience must be specified by future HR authorization.
+- Leave/complaint histories append-only including no TRUNCATE; no lifecycle
+  triggers populate history or update balances. Five soft-deletable HR parent
+  records reject hard deletion/truncation including drafts/childless records.
+  Finalized supporting goals/feedback/comment retention remains service policy.
+- Generic task is now optionally Project-owned so HR tasks need no invented
+  Project. Non-project tasks restricted to HR and no Project parent/sprint,
+  protecting existing composite FKs against NULL bypass. Sprint unchanged.
+  Independently nullable HR context links are deduplicated across sixteen
+  patterns, not a new work engine; classification/authorization checked later.
+- File optionally Project-owned and gains category plus four optional typed
+  HR references. One context maximum; category-specific context required.
+  HR documents must be standalone; unchanged ProjectResource composite FK blocks
+  projecting them into ordinary project/customer document sharing.
+- Standalone series/version unique via partial index compensates for nullable
+  Project uniqueness. Current-revision serialization and exact physical revision
+  semantics continue existing contracts. Uploader is actor, not subject or an
+  automatic access grant. MinIO remains unchanged; no binary contents in SQL.
+- All dates TIMESTAMPTZ(6); all 36 new FKs RESTRICT; existing auth/employee profile,
+  sales/project/financial/design/development/QA/infrastructure entities preserved.
+  No UI/API/services, authorization implementation, notifications, attendance,
+  payroll, automation, AWS, tenants or Step 18 implementation.

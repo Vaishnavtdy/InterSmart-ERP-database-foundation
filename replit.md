@@ -108,6 +108,14 @@ outside this ERP; configuration flags do not configure those services.
 
 ## Gotchas
 
+- HR leave/performance/complaints/appreciation are database foundations only.
+  Sensitive HR records do not inherit project/customer access. Existing auth
+  role/permission tables are absent; do not invent or seed an authorization system.
+- HR standalone tasks/files reuse the common tables. HR files stay outside
+  ProjectResource sharing; physical contents remain in MinIO. Uploader does not
+  identify the employee subject. HR decision/status/balance coordination needs
+  future authorized transactional writers.
+
 _Populate as you build — sharp edges, "always run X before Y" rules._
 
 ## Pointers

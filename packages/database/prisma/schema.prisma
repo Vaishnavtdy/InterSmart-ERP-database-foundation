@@ -138,6 +138,25 @@ model User {
   completedGoLiveItems        GoLiveChecklistItem[]         @relation("ChecklistCompleter")
   issuedHandovers             ProductionHandover[]          @relation("HandoverSender")
   receivedHandovers           ProductionHandover[]          @relation("HandoverReceiver")
+  leaveBalances               LeaveBalance[]
+  leaveRequests               LeaveRequest[]                @relation("LeaveEmployee")
+  approvedLeaveRequests       LeaveRequest[]                @relation("LeaveApprover")
+  rejectedLeaveRequests       LeaveRequest[]                @relation("LeaveRejector")
+  cancelledLeaveRequests      LeaveRequest[]                @relation("LeaveCanceller")
+  leaveStatusChanges          LeaveRequestStatusHistory[]
+  leaveComments               LeaveRequestComment[]
+  createdPerformanceCycles    PerformanceCycle[]
+  performanceReviews          PerformanceReview[]           @relation("ReviewEmployee")
+  conductedPerformanceReviews PerformanceReview[]           @relation("ReviewReviewer")
+  performanceFeedback         PerformanceFeedback[]
+  reportedHrComplaints        HrComplaint[]                 @relation("HrComplaintReporter")
+  assignedHrComplaints        HrComplaint[]                 @relation("HrComplaintAssignee")
+  resolvedHrComplaints        HrComplaint[]                 @relation("HrComplaintResolver")
+  hrComplaintStatusChanges    HrComplaintStatusHistory[]
+  hrComplaintComments         HrComplaintComment[]
+  receivedAppreciations       EmployeeAppreciation[]        @relation("AppreciationEmployee")
+  givenAppreciations          EmployeeAppreciation[]        @relation("AppreciationAuthor")
+  employeeDocuments           File[]                        @relation("FileEmployee")
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -776,26 +795,35 @@ enum ProjectResourceType {
 }
 
 model File {
-  id             String            @id @default(uuid()) @db.Uuid
-  projectId      String            @map("project_id") @db.Uuid
-  fileSeriesId   String            @default(uuid()) @map("file_series_id") @db.Uuid
-  uploadedById   String            @map("uploaded_by_id") @db.Uuid
-  fileName       String            @map("file_name") @db.VarChar(255)
-  originalName   String            @map("original_name") @db.VarChar(255)
-  storageKey     String            @unique @map("storage_key") @db.VarChar(1024)
-  bucket         String            @db.VarChar(255)
-  mimeType       String            @map("mime_type") @db.VarChar(255)
-  sizeBytes      BigInt            @map("size_bytes") @db.BigInt
-  checksum       String?           @db.VarChar(255)
-  version        Int               @default(1)
-  isCurrent      Boolean           @default(true) @map("is_current")
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt      DateTime?         @map("deleted_at") @db.Timestamptz(6)
-  project        Project           @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  uploadedBy     User              @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
-  resources      ProjectResource[]
-  bugAttachments BugAttachment[]
+  id                  String             @id @default(uuid()) @db.Uuid
+  projectId           String?            @map("project_id") @db.Uuid
+  fileCategory        FileCategory       @default(OTHER) @map("file_category")
+  employeeId          String?            @map("employee_id") @db.Uuid
+  leaveRequestId      String?            @map("leave_request_id") @db.Uuid
+  performanceReviewId String?            @map("performance_review_id") @db.Uuid
+  complaintId         String?            @map("complaint_id") @db.Uuid
+  fileSeriesId        String             @default(uuid()) @map("file_series_id") @db.Uuid
+  uploadedById        String             @map("uploaded_by_id") @db.Uuid
+  fileName            String             @map("file_name") @db.VarChar(255)
+  originalName        String             @map("original_name") @db.VarChar(255)
+  storageKey          String             @unique @map("storage_key") @db.VarChar(1024)
+  bucket              String             @db.VarChar(255)
+  mimeType            String             @map("mime_type") @db.VarChar(255)
+  sizeBytes           BigInt             @map("size_bytes") @db.BigInt
+  checksum            String?            @db.VarChar(255)
+  version             Int                @default(1)
+  isCurrent           Boolean            @default(true) @map("is_current")
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?          @map("deleted_at") @db.Timestamptz(6)
+  project             Project?           @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  employee            User?              @relation("FileEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveRequest        LeaveRequest?      @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
+  performanceReview   PerformanceReview? @relation(fields: [performanceReviewId], references: [id], onDelete: Restrict)
+  complaint           HrComplaint?       @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  uploadedBy          User               @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  resources           ProjectResource[]
+  bugAttachments      BugAttachment[]
 
   @@unique([projectId, fileSeriesId, version])
   // Target key for resource ownership validation.
@@ -804,6 +832,11 @@ model File {
   @@index([uploadedById])
   @@index([checksum])
   @@index([createdAt])
+  @@index([fileCategory, deletedAt])
+  @@index([employeeId])
+  @@index([leaveRequestId])
+  @@index([performanceReviewId])
+  @@index([complaintId])
   @@map("files")
 }
 
@@ -1138,7 +1171,7 @@ enum TaskDependencyType {
 
 model Task {
   id                  String                   @id @default(uuid()) @db.Uuid
-  projectId           String                   @map("project_id") @db.Uuid
+  projectId           String?                  @map("project_id") @db.Uuid
   sprintId            String?                  @map("sprint_id") @db.Uuid
   parentTaskId        String?                  @map("parent_task_id") @db.Uuid
   taskCode            String                   @unique @map("task_code") @db.VarChar(32)
@@ -1159,7 +1192,7 @@ model Task {
   createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime?                @map("deleted_at") @db.Timestamptz(6)
-  project             Project                  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  project             Project?                 @relation(fields: [projectId], references: [id], onDelete: Restrict)
   sprint              Sprint?                  @relation(fields: [projectId, sprintId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
   parentTask          Task?                    @relation("TaskHierarchy", fields: [projectId, parentTaskId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
   childTasks          Task[]                   @relation("TaskHierarchy")
@@ -1176,6 +1209,7 @@ model Task {
   qaLinks             QaTaskLink[]
   bugLinks            BugTaskLink[]
   infrastructureLinks InfrastructureTaskLink[]
+  hrLinks             HrTaskLink[]
 
   // Composite target key keeps children in their parent's project.
   @@unique([projectId, id])
@@ -2823,4 +2857,414 @@ model InfrastructureBackup {
   @@index([backupType])
   @@index([provider])
   @@map("infrastructure_backups")
+}
+
+enum LeaveRequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PerformanceCycleStatus {
+  DRAFT
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PerformanceReviewStatus {
+  DRAFT
+  SELF_REVIEW
+  MANAGER_REVIEW
+  HR_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum PerformanceGoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum PerformanceFeedbackType {
+  MANAGER
+  PEER
+  SELF
+  HR
+  OTHER
+}
+
+enum HrComplaintCategory {
+  WORKPLACE
+  MANAGEMENT
+  TEAM_CONFLICT
+  HARASSMENT
+  POLICY
+  SALARY
+  WORKLOAD
+  LEAVE
+  ATTENDANCE
+  OTHER
+}
+
+enum HrComplaintStatus {
+  OPEN
+  UNDER_REVIEW
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum AppreciationCategory {
+  PERFORMANCE
+  TEAMWORK
+  LEADERSHIP
+  CUSTOMER_FEEDBACK
+  INNOVATION
+  HELPFULNESS
+  MILESTONE
+  OTHER
+}
+
+enum AppreciationVisibility {
+  PRIVATE
+  TEAM
+  COMPANY
+}
+
+enum FileCategory {
+  EMPLOYEE_DOCUMENT
+  LEAVE_DOCUMENT
+  PERFORMANCE_DOCUMENT
+  COMPLAINT_ATTACHMENT
+  HR_DOCUMENT
+  OTHER
+}
+
+model LeaveType {
+  id               String         @id @default(uuid()) @db.Uuid
+  name             String         @db.VarChar(100)
+  code             String         @unique @db.VarChar(64)
+  description      String?        @db.Text
+  isPaid           Boolean        @default(true) @map("is_paid")
+  requiresApproval Boolean        @default(true) @map("requires_approval")
+  isActive         Boolean        @default(true) @map("is_active")
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  balances         LeaveBalance[]
+  requests         LeaveRequest[]
+
+  @@index([isActive])
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  leaveTypeId   String    @map("leave_type_id") @db.Uuid
+  year          Int       @db.SmallInt
+  allocatedDays Decimal   @default(0) @map("allocated_days") @db.Decimal(10, 2)
+  usedDays      Decimal   @default(0) @map("used_days") @db.Decimal(10, 2)
+  pendingDays   Decimal   @default(0) @map("pending_days") @db.Decimal(10, 2)
+  adjustedDays  Decimal   @default(0) @map("adjusted_days") @db.Decimal(10, 2)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  leaveType     LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, leaveTypeId, year])
+  @@index([leaveTypeId])
+  @@index([year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  requestCode        String                      @unique @map("request_code") @db.VarChar(64)
+  userId             String                      @map("user_id") @db.Uuid
+  leaveTypeId        String                      @map("leave_type_id") @db.Uuid
+  startDate          DateTime                    @map("start_date") @db.Timestamptz(6)
+  endDate            DateTime                    @map("end_date") @db.Timestamptz(6)
+  totalDays          Decimal                     @map("total_days") @db.Decimal(10, 2)
+  reason             String                      @db.Text
+  status             LeaveRequestStatus          @default(DRAFT)
+  submittedAt        DateTime                    @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  approvedAt         DateTime?                   @map("approved_at") @db.Timestamptz(6)
+  approvedById       String?                     @map("approved_by_id") @db.Uuid
+  rejectedAt         DateTime?                   @map("rejected_at") @db.Timestamptz(6)
+  rejectedById       String?                     @map("rejected_by_id") @db.Uuid
+  rejectionReason    String?                     @map("rejection_reason") @db.Text
+  cancelledAt        DateTime?                   @map("cancelled_at") @db.Timestamptz(6)
+  cancelledById      String?                     @map("cancelled_by_id") @db.Uuid
+  cancellationReason String?                     @map("cancellation_reason") @db.Text
+  createdAt          DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime?                   @map("deleted_at") @db.Timestamptz(6)
+  user               User                        @relation("LeaveEmployee", fields: [userId], references: [id], onDelete: Restrict)
+  leaveType          LeaveType                   @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  approvedBy         User?                       @relation("LeaveApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  rejectedBy         User?                       @relation("LeaveRejector", fields: [rejectedById], references: [id], onDelete: Restrict)
+  cancelledBy        User?                       @relation("LeaveCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  statusHistory      LeaveRequestStatusHistory[]
+  comments           LeaveRequestComment[]
+  taskLinks          HrTaskLink[]
+  files              File[]
+
+  @@index([userId, status, deletedAt])
+  @@index([leaveTypeId])
+  @@index([status, deletedAt])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([submittedAt])
+  @@index([approvedById])
+  @@index([rejectedById])
+  @@index([cancelledById])
+  @@map("leave_requests")
+}
+
+model LeaveRequestStatusHistory {
+  id             String              @id @default(uuid()) @db.Uuid
+  leaveRequestId String              @map("leave_request_id") @db.Uuid
+  fromStatus     LeaveRequestStatus? @map("from_status")
+  toStatus       LeaveRequestStatus  @map("to_status")
+  changedById    String              @map("changed_by_id") @db.Uuid
+  reason         String?             @db.Text
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  leaveRequest   LeaveRequest        @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
+  changedBy      User                @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([leaveRequestId, createdAt])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("leave_request_status_history")
+}
+
+model LeaveRequestComment {
+  id             String       @id @default(uuid()) @db.Uuid
+  leaveRequestId String       @map("leave_request_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  comment        String       @db.Text
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([leaveRequestId, createdAt])
+  @@index([userId])
+  @@map("leave_request_comments")
+}
+
+model PerformanceCycle {
+  id          String                 @id @default(uuid()) @db.Uuid
+  name        String                 @db.VarChar(255)
+  code        String                 @unique @db.VarChar(64)
+  description String?                @db.Text
+  startDate   DateTime               @map("start_date") @db.Timestamptz(6)
+  endDate     DateTime               @map("end_date") @db.Timestamptz(6)
+  status      PerformanceCycleStatus @default(DRAFT)
+  createdById String                 @map("created_by_id") @db.Uuid
+  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  createdBy   User                   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  reviews     PerformanceReview[]
+
+  @@index([status, deletedAt])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([createdById])
+  @@map("performance_cycles")
+}
+
+model PerformanceReview {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  performanceCycleId String                  @map("performance_cycle_id") @db.Uuid
+  employeeId         String                  @map("employee_id") @db.Uuid
+  reviewerId         String                  @map("reviewer_id") @db.Uuid
+  status             PerformanceReviewStatus @default(DRAFT)
+  overallRating      Decimal?                @map("overall_rating") @db.Decimal(10, 4)
+  strengths          String?                 @db.Text
+  improvementAreas   String?                 @map("improvement_areas") @db.Text
+  employeeComments   String?                 @map("employee_comments") @db.Text
+  reviewerComments   String?                 @map("reviewer_comments") @db.Text
+  submittedAt        DateTime?               @map("submitted_at") @db.Timestamptz(6)
+  completedAt        DateTime?               @map("completed_at") @db.Timestamptz(6)
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime?               @map("deleted_at") @db.Timestamptz(6)
+  performanceCycle   PerformanceCycle        @relation(fields: [performanceCycleId], references: [id], onDelete: Restrict)
+  employee           User                    @relation("ReviewEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  reviewer           User                    @relation("ReviewReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  goals              PerformanceGoal[]
+  feedback           PerformanceFeedback[]
+  taskLinks          HrTaskLink[]
+  files              File[]
+
+  @@unique([performanceCycleId, employeeId])
+  @@index([employeeId])
+  @@index([reviewerId])
+  @@index([status, deletedAt])
+  @@map("performance_reviews")
+}
+
+model PerformanceGoal {
+  id                  String                @id @default(uuid()) @db.Uuid
+  performanceReviewId String                @map("performance_review_id") @db.Uuid
+  title               String                @db.VarChar(255)
+  description         String?               @db.Text
+  measurementCriteria String?               @map("measurement_criteria") @db.Text
+  targetValue         String?               @map("target_value") @db.Text
+  achievedValue       String?               @map("achieved_value") @db.Text
+  weight              Decimal?              @db.Decimal(10, 4)
+  status              PerformanceGoalStatus @default(NOT_STARTED)
+  dueDate             DateTime?             @map("due_date") @db.Timestamptz(6)
+  completedAt         DateTime?             @map("completed_at") @db.Timestamptz(6)
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  performanceReview   PerformanceReview     @relation(fields: [performanceReviewId], references: [id], onDelete: Restrict)
+
+  @@index([performanceReviewId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("performance_goals")
+}
+
+model PerformanceFeedback {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  performanceReviewId String                  @map("performance_review_id") @db.Uuid
+  fromUserId          String                  @map("from_user_id") @db.Uuid
+  feedbackType        PerformanceFeedbackType @default(OTHER) @map("feedback_type")
+  feedback            String                  @db.Text
+  createdAt           DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  performanceReview   PerformanceReview       @relation(fields: [performanceReviewId], references: [id], onDelete: Restrict)
+  fromUser            User                    @relation(fields: [fromUserId], references: [id], onDelete: Restrict)
+
+  @@index([performanceReviewId, createdAt])
+  @@index([fromUserId])
+  @@index([feedbackType])
+  @@map("performance_feedback")
+}
+
+model HrComplaint {
+  id             String                     @id @default(uuid()) @db.Uuid
+  complaintCode  String                     @unique @map("complaint_code") @db.VarChar(64)
+  reportedById   String                     @map("reported_by_id") @db.Uuid
+  assignedToId   String?                    @map("assigned_to_id") @db.Uuid
+  subject        String                     @db.VarChar(255)
+  description    String                     @db.Text
+  category       HrComplaintCategory        @default(OTHER)
+  priority       ProjectPriority            @default(MEDIUM)
+  status         HrComplaintStatus          @default(OPEN)
+  isConfidential Boolean                    @default(true) @map("is_confidential")
+  resolution     String?                    @db.Text
+  resolvedAt     DateTime?                  @map("resolved_at") @db.Timestamptz(6)
+  resolvedById   String?                    @map("resolved_by_id") @db.Uuid
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?                  @map("deleted_at") @db.Timestamptz(6)
+  reportedBy     User                       @relation("HrComplaintReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+  assignedTo     User?                      @relation("HrComplaintAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  resolvedBy     User?                      @relation("HrComplaintResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  statusHistory  HrComplaintStatusHistory[]
+  comments       HrComplaintComment[]
+  taskLinks      HrTaskLink[]
+  files          File[]
+
+  @@index([reportedById])
+  @@index([assignedToId])
+  @@index([resolvedById])
+  @@index([status, deletedAt])
+  @@index([priority])
+  @@index([category])
+  @@index([createdAt])
+  @@index([isConfidential, deletedAt])
+  @@map("hr_complaints")
+}
+
+model HrComplaintStatusHistory {
+  id          String             @id @default(uuid()) @db.Uuid
+  complaintId String             @map("complaint_id") @db.Uuid
+  fromStatus  HrComplaintStatus? @map("from_status")
+  toStatus    HrComplaintStatus  @map("to_status")
+  changedById String             @map("changed_by_id") @db.Uuid
+  reason      String?            @db.Text
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  complaint   HrComplaint        @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  changedBy   User               @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([complaintId, createdAt])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("hr_complaint_status_history")
+}
+
+model HrComplaintComment {
+  id          String      @id @default(uuid()) @db.Uuid
+  complaintId String      @map("complaint_id") @db.Uuid
+  userId      String      @map("user_id") @db.Uuid
+  comment     String      @db.Text
+  isInternal  Boolean     @default(true) @map("is_internal")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  complaint   HrComplaint @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([complaintId, isInternal, createdAt])
+  @@index([userId])
+  @@map("hr_complaint_comments")
+}
+
+model EmployeeAppreciation {
+  id               String                 @id @default(uuid()) @db.Uuid
+  appreciationCode String                 @unique @map("appreciation_code") @db.VarChar(64)
+  employeeId       String                 @map("employee_id") @db.Uuid
+  givenById        String                 @map("given_by_id") @db.Uuid
+  title            String                 @db.VarChar(255)
+  message          String                 @db.Text
+  category         AppreciationCategory   @default(OTHER)
+  visibility       AppreciationVisibility @default(PRIVATE)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  employee         User                   @relation("AppreciationEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  givenBy          User                   @relation("AppreciationAuthor", fields: [givenById], references: [id], onDelete: Restrict)
+  taskLinks        HrTaskLink[]
+
+  @@index([employeeId, createdAt])
+  @@index([givenById])
+  @@index([visibility, deletedAt])
+  @@index([category])
+  @@map("employee_appreciations")
+}
+
+model HrTaskLink {
+  id                  String                @id @default(uuid()) @db.Uuid
+  taskId              String                @map("task_id") @db.Uuid
+  leaveRequestId      String?               @map("leave_request_id") @db.Uuid
+  performanceReviewId String?               @map("performance_review_id") @db.Uuid
+  complaintId         String?               @map("complaint_id") @db.Uuid
+  appreciationId      String?               @map("appreciation_id") @db.Uuid
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  task                Task                  @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  leaveRequest        LeaveRequest?         @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
+  performanceReview   PerformanceReview?    @relation(fields: [performanceReviewId], references: [id], onDelete: Restrict)
+  complaint           HrComplaint?          @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  appreciation        EmployeeAppreciation? @relation(fields: [appreciationId], references: [id], onDelete: Restrict)
+
+  @@index([taskId])
+  @@index([leaveRequestId])
+  @@index([performanceReviewId])
+  @@index([complaintId])
+  @@index([appreciationId])
+  @@map("hr_task_links")
 }

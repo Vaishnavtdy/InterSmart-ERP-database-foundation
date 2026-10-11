@@ -5,3 +5,4 @@
 - [Payment write contracts](payment-write-contracts.md) — future writers must coordinate receipt status, immutable history, request state, and ownership/currency validation.
 - [Task write contracts](task-write-contracts.md) — serialize current-assignee/history changes; cycle validation and graph policy remain future service responsibilities.
 - [Infrastructure write contracts](infrastructure-write-contracts.md) — validate cross-module Project ownership and serialize go-live readiness/checklist writes.
+- [HR write contracts](hr-write-contracts.md) — serialize leave decisions/history/balances; actual HR actors are not inferred from managers or task assignees.

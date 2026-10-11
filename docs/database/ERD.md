@@ -2,6 +2,197 @@
 
 ```mermaid
 erDiagram
+  USERS ||--o{ LEAVE_BALANCES : "annual employee balance"
+  LEAVE_TYPES ||--o{ LEAVE_BALANCES : "leave bucket"
+  USERS ||--o{ LEAVE_REQUESTS : "requests leave"
+  LEAVE_TYPES ||--o{ LEAVE_REQUESTS : "configurable leave type"
+  USERS o|--o{ LEAVE_REQUESTS : "actual approver"
+  USERS o|--o{ LEAVE_REQUESTS : "actual rejector"
+  USERS o|--o{ LEAVE_REQUESTS : "actual canceller"
+  LEAVE_REQUESTS ||--o{ LEAVE_REQUEST_STATUS_HISTORY : "append-only audit"
+  USERS ||--o{ LEAVE_REQUEST_STATUS_HISTORY : "changes status"
+  LEAVE_REQUESTS ||--o{ LEAVE_REQUEST_COMMENTS : "communication"
+  USERS ||--o{ LEAVE_REQUEST_COMMENTS : "comments"
+  USERS ||--o{ PERFORMANCE_CYCLES : "creates cycle"
+  PERFORMANCE_CYCLES ||--o{ PERFORMANCE_REVIEWS : "one per employee"
+  USERS ||--o{ PERFORMANCE_REVIEWS : "reviewed employee"
+  USERS ||--o{ PERFORMANCE_REVIEWS : "actual reviewer"
+  PERFORMANCE_REVIEWS ||--o{ PERFORMANCE_GOALS : "goals"
+  PERFORMANCE_REVIEWS ||--o{ PERFORMANCE_FEEDBACK : "multiple feedback entries"
+  USERS ||--o{ PERFORMANCE_FEEDBACK : "feedback author"
+  USERS ||--o{ HR_COMPLAINTS : "reports"
+  USERS o|--o{ HR_COMPLAINTS : "optional responsible HR user"
+  USERS o|--o{ HR_COMPLAINTS : "actual resolver"
+  HR_COMPLAINTS ||--o{ HR_COMPLAINT_STATUS_HISTORY : "append-only sensitive audit"
+  USERS ||--o{ HR_COMPLAINT_STATUS_HISTORY : "changes status"
+  HR_COMPLAINTS ||--o{ HR_COMPLAINT_COMMENTS : "public vs HR-only discussion"
+  USERS ||--o{ HR_COMPLAINT_COMMENTS : "comments"
+  USERS ||--o{ EMPLOYEE_APPRECIATIONS : "recognized employee"
+  USERS ||--o{ EMPLOYEE_APPRECIATIONS : "recognition author"
+  TASKS ||--o{ HR_TASK_LINKS : "common HR work"
+  LEAVE_REQUESTS o|--o{ HR_TASK_LINKS : "optional leave context"
+  PERFORMANCE_REVIEWS o|--o{ HR_TASK_LINKS : "optional performance context"
+  HR_COMPLAINTS o|--o{ HR_TASK_LINKS : "optional complaint context"
+  EMPLOYEE_APPRECIATIONS o|--o{ HR_TASK_LINKS : "optional recognition context"
+  USERS o|--o{ FILES : "optional HR employee subject"
+  LEAVE_REQUESTS o|--o{ FILES : "optional leave document subject"
+  PERFORMANCE_REVIEWS o|--o{ FILES : "optional review document subject"
+  HR_COMPLAINTS o|--o{ FILES : "optional complaint attachment subject"
+
+  LEAVE_TYPES {
+    uuid id PK
+    string name
+    string code UK
+    string description "nullable"
+    boolean is_paid
+    boolean requires_approval
+    boolean is_active
+  }
+  LEAVE_BALANCES {
+    uuid id PK
+    uuid user_id FK
+    uuid leave_type_id FK
+    int year "unique with user/type"
+    decimal allocated_days
+    decimal used_days
+    decimal pending_days
+    decimal adjusted_days "signed"
+  }
+  LEAVE_REQUESTS {
+    uuid id PK
+    string request_code UK
+    uuid user_id FK
+    uuid leave_type_id FK
+    timestamptz start_date
+    timestamptz end_date
+    decimal total_days "positive fractional days"
+    string reason
+    LeaveRequestStatus status
+    timestamptz submitted_at
+    uuid approved_by_id FK "nullable actual actor"
+    timestamptz approved_at "nullable"
+    uuid rejected_by_id FK "nullable actual actor"
+    timestamptz rejected_at "nullable"
+    string rejection_reason "nullable"
+    uuid cancelled_by_id FK "nullable actual actor"
+    timestamptz cancelled_at "nullable"
+    string cancellation_reason "nullable"
+    timestamptz deleted_at "nullable"
+  }
+  LEAVE_REQUEST_STATUS_HISTORY {
+    uuid id PK
+    uuid leave_request_id FK
+    LeaveRequestStatus from_status "nullable"
+    LeaveRequestStatus to_status
+    uuid changed_by_id FK
+    string reason "nullable"
+    timestamptz created_at
+  }
+  LEAVE_REQUEST_COMMENTS {
+    uuid id PK
+    uuid leave_request_id FK
+    uuid user_id FK
+    string comment
+  }
+  PERFORMANCE_CYCLES {
+    uuid id PK
+    string name
+    string code UK
+    string description "nullable"
+    timestamptz start_date
+    timestamptz end_date
+    PerformanceCycleStatus status
+    uuid created_by_id FK
+    timestamptz deleted_at "nullable"
+  }
+  PERFORMANCE_REVIEWS {
+    uuid id PK
+    uuid performance_cycle_id FK "unique with employee"
+    uuid employee_id FK
+    uuid reviewer_id FK
+    PerformanceReviewStatus status
+    decimal overall_rating "nullable manually recorded"
+    string strengths "nullable"
+    string improvement_areas "nullable"
+    string employee_comments "nullable"
+    string reviewer_comments "nullable"
+    timestamptz submitted_at "nullable"
+    timestamptz completed_at "nullable"
+    timestamptz deleted_at "nullable"
+  }
+  PERFORMANCE_GOALS {
+    uuid id PK
+    uuid performance_review_id FK
+    string title
+    string description "nullable"
+    string measurement_criteria "nullable"
+    string target_value "nullable qualitative/unit-bearing value"
+    string achieved_value "nullable"
+    decimal weight "nullable"
+    PerformanceGoalStatus status
+    timestamptz due_date "nullable"
+    timestamptz completed_at "nullable"
+  }
+  PERFORMANCE_FEEDBACK {
+    uuid id PK
+    uuid performance_review_id FK
+    uuid from_user_id FK
+    PerformanceFeedbackType feedback_type
+    string feedback
+  }
+  HR_COMPLAINTS {
+    uuid id PK
+    string complaint_code UK
+    uuid reported_by_id FK
+    uuid assigned_to_id FK "nullable"
+    string subject
+    string description
+    HrComplaintCategory category
+    ProjectPriority priority
+    HrComplaintStatus status
+    boolean is_confidential "default true"
+    string resolution "nullable"
+    timestamptz resolved_at "nullable"
+    uuid resolved_by_id FK "nullable"
+    timestamptz deleted_at "nullable"
+  }
+  HR_COMPLAINT_STATUS_HISTORY {
+    uuid id PK
+    uuid complaint_id FK
+    HrComplaintStatus from_status "nullable"
+    HrComplaintStatus to_status
+    uuid changed_by_id FK
+    string reason "nullable"
+    timestamptz created_at
+  }
+  HR_COMPLAINT_COMMENTS {
+    uuid id PK
+    uuid complaint_id FK
+    uuid user_id FK
+    string comment
+    boolean is_internal "default true"
+  }
+  EMPLOYEE_APPRECIATIONS {
+    uuid id PK
+    string appreciation_code UK
+    uuid employee_id FK
+    uuid given_by_id FK
+    string title
+    string message
+    AppreciationCategory category
+    AppreciationVisibility visibility "default PRIVATE"
+    timestamptz deleted_at "nullable"
+  }
+  HR_TASK_LINKS {
+    uuid id PK
+    uuid task_id FK
+    uuid leave_request_id FK "nullable"
+    uuid performance_review_id FK "nullable"
+    uuid complaint_id FK "nullable"
+    uuid appreciation_id FK "nullable"
+    timestamptz created_at
+  }
+
   PROJECTS ||--o{ PROJECT_INFRASTRUCTURE : "infrastructure versions"
   USERS ||--o{ PROJECT_INFRASTRUCTURE : "creates"
   USERS o|--o{ PROJECT_INFRASTRUCTURE : "optional approval"
@@ -660,7 +851,7 @@ erDiagram
     timestamptz updated_at
   }
 
-  PROJECTS ||--o{ TASKS : "executable work"
+  PROJECTS o|--o{ TASKS : "project work or standalone HR"
   TASKS o|--o{ TASKS : "parent and children in same project"
   USERS ||--o{ TASKS : "creates"
   USERS o|--o{ TASKS : "current assignee"
@@ -676,7 +867,7 @@ erDiagram
 
   TASKS {
     uuid id PK
-    uuid project_id FK
+    uuid project_id FK "nullable only for standalone HR"
     uuid sprint_id FK "nullable, same project"
     uuid parent_task_id FK "nullable, same project"
     string task_code UK
@@ -854,7 +1045,7 @@ erDiagram
     uuid created_by_id FK
     timestamptz created_at
   }
-  PROJECTS ||--o{ FILES : "owns physical metadata"
+  PROJECTS o|--o{ FILES : "physical metadata; HR files standalone"
   USERS ||--o{ FILES : "uploads"
   PROJECTS ||--o{ PROJECT_RESOURCES : "classifies resources"
   FILES ||--o{ PROJECT_RESOURCES : "same-project business references"
@@ -862,7 +1053,12 @@ erDiagram
 
   FILES {
     uuid id PK
-    uuid project_id FK
+    uuid project_id FK "nullable, HR files require NULL"
+    FileCategory file_category
+    uuid employee_id FK "nullable"
+    uuid leave_request_id FK "nullable"
+    uuid performance_review_id FK "nullable"
+    uuid complaint_id FK "nullable"
     uuid file_series_id
     uuid uploaded_by_id FK
     string file_name
@@ -1343,3 +1539,17 @@ implicitly cloned into infrastructure versions. Monitoring/backup flags are
 manual metadata, no monitoring/CI-CD/backup engine. CredentialReference is only
 an external identifier; no private-key/credential documents permitted. README
 includes all nullable narrative/timestamp fields omitted from compact blocks.
+
+Step 17: HR uses employees, common work and existing MinIO file metadata; no
+authorization engine exists to seed. New entities are not Project/customer-owned.
+Leave remaining balance is calculated (allocation + adjustment - used - pending).
+History append-only; five parent entities soft-deletable with hard-delete guards.
+All 36 new FKs RESTRICT. HR context links are independently nullable/deduplicated,
+with workstream/subject/authorization validation reserved for future services.
+Standalone HR tasks have no project parent/sprint; existing project ownership
+constraints remain. HR files use one typed subject, never generic ProjectResource
+sharing; standalone physical series/version uniqueness preserved. All HR dates
+TIMESTAMPTZ(6). All new entities have createdAt, with updatedAt except the two
+history tables/HrTaskLink; compact blocks omit common timestamps. Confidential,
+internal and visibility flags require future HR authorization checks on attached
+Task/File metadata and physical MinIO downloads, not just Project/uploader access.

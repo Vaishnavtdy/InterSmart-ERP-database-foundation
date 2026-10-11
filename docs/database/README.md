@@ -1424,3 +1424,192 @@ Actual credentials remain outside PostgreSQL and this ERP file system.
 No AWS, organizations/tenant fields, new deployment/task/team/file engine,
 calculated budget/progress, HR, notifications, generic approvals, AMC contracts,
 monitoring engine, CI/CD, portal, frontend, APIs or Step 17 work is implemented.
+
+## Step 17 — HR / Leave / Performance / Complaints / Appreciation
+
+Migration: `20261011121142_add_hr_leave_performance`. Fourteen new tables
+(thirteen HR entities plus HrTaskLink), ten new enums and compatible File/Task
+extensions. This supersedes the historical project-required File/Task descriptions
+in earlier steps only for the standalone HR cases described below.
+
+### Models and fields
+
+All primary/foreign keys are UUID. Dates/timestamps are TIMESTAMPTZ(6), not DATE.
+Every model has createdAt default now. LeaveRequestStatusHistory,
+HrComplaintStatusHistory and HrTaskLink are created-only records; all other new
+models have Prisma-managed updatedAt. Raw SQL writers supply/update updatedAt.
+No tenant/organization columns, JSONB or file contents are introduced.
+
+| Model / table | Required fields besides id/applicable timestamps | Nullable fields |
+| --- | --- | --- |
+| LeaveType / leave_types | name VARCHAR(100), unique code VARCHAR(64), isPaid/requiresApproval/isActive (true) | description TEXT |
+| LeaveBalance / leave_balances | userId, leaveTypeId, year SMALLINT, allocatedDays/usedDays/pendingDays/adjustedDays NUMERIC(10,2) (0) | none |
+| LeaveRequest / leave_requests | unique requestCode VARCHAR(64), userId, leaveTypeId, startDate, endDate, totalDays NUMERIC(10,2), reason TEXT, status (DRAFT), submittedAt (now) | approvedAt/approvedById, rejectedAt/rejectedById/rejectionReason TEXT, cancelledAt/cancelledById/cancellationReason TEXT, deletedAt |
+| LeaveRequestStatusHistory / leave_request_status_history | leaveRequestId, toStatus, changedById | fromStatus, reason TEXT |
+| LeaveRequestComment / leave_request_comments | leaveRequestId, userId, comment TEXT | none |
+| PerformanceCycle / performance_cycles | name VARCHAR(255), unique code VARCHAR(64), startDate, endDate, status (DRAFT), createdById | description TEXT, deletedAt |
+| PerformanceReview / performance_reviews | performanceCycleId, employeeId, reviewerId, status (DRAFT) | overallRating NUMERIC(10,4), strengths/improvementAreas/employeeComments/reviewerComments TEXT, submittedAt, completedAt, deletedAt |
+| PerformanceGoal / performance_goals | performanceReviewId, title VARCHAR(255), status (NOT_STARTED) | description/measurementCriteria/targetValue/achievedValue TEXT, weight NUMERIC(10,4), dueDate, completedAt |
+| PerformanceFeedback / performance_feedback | performanceReviewId, fromUserId, feedbackType (OTHER), feedback TEXT | none |
+| HrComplaint / hr_complaints | unique complaintCode VARCHAR(64), reportedById, subject VARCHAR(255), description TEXT, category (OTHER), reused priority (MEDIUM), status (OPEN), isConfidential (true) | assignedToId, resolution TEXT, resolvedAt/resolvedById, deletedAt |
+| HrComplaintStatusHistory / hr_complaint_status_history | complaintId, toStatus, changedById | fromStatus, reason TEXT |
+| HrComplaintComment / hr_complaint_comments | complaintId, userId, comment TEXT, isInternal (true) | none |
+| EmployeeAppreciation / employee_appreciations | unique appreciationCode VARCHAR(64), employeeId, givenById, title VARCHAR(255), message TEXT, category (OTHER), visibility (PRIVATE) | deletedAt |
+| HrTaskLink / hr_task_links | taskId | leaveRequestId, performanceReviewId, complaintId, appreciationId |
+
+User has inverse relations for employee/author/reviewer/decision maker, leave
+balances/requests/comments/history, complaints/comments/history, recognition and
+employee documents. Department/EmployeeProfile/authentication remain unchanged.
+All 36 new FKs (including four HR references on existing File) RESTRICT deletion.
+
+### Leave balances and decisions
+
+Leave types are configurable rows, not an enum; code unique, inactive types
+retain historical references. No example leave types are seeded: the existing
+seed covers departments/project categories, not HR entitlements or approval rules.
+isPaid/requiresApproval are type metadata, not payroll or approval automation.
+
+Unique(userId, leaveTypeId, year) prevents duplicate annual balance buckets.
+Year is 1..9999. Allocated/used/pending days are nonnegative; adjustedDays is
+signed so corrections can decrease allocation. Decimal days support fractional
+leave. No stored remainingDays:
+
+```
+remaining = allocatedDays + adjustedDays - usedDays - pendingDays
+```
+
+No balance-allocation scheduler or auto updates from requests. Future writers
+must serialize request status/history and affected balance changes atomically,
+including reversals, retries, cancellation and cross-year requests. Define
+calendar/working-day/timezone/half-day rules in services; totalDays is not inferred
+from elapsed timestamps. Negative remaining balances are not prohibited here;
+overdraw/carryover policy is not yet supplied.
+
+Request dates are ordered and totalDays >0. Lifecycle states:
+DRAFT → PENDING_APPROVAL → APPROVED / REJECTED; cancellation supported.
+These are supported states, not a hard-coded transition engine. Required
+submittedAt defaults now even for drafts per requested field shape; status,
+not the mere presence of submittedAt, indicates actual submission. Future submit
+writers set the actual submission timestamp when leaving draft.
+
+Approval, rejection and cancellation each retain an actual employee actor/time
+pair independently; prior approval can coexist with later cancellation evidence.
+Approver is NOT inferred from User.managerId. Reason/history/comments communicate
+decisions; history may start NULL → DRAFT (or an imported initial state), but
+fromStatus cannot equal toStatus. No auto-created events or generic approval table.
+
+### Performance
+
+One configurable cycle supports annual/quarterly/probation/special review labels.
+Ordered start/end dates; states DRAFT, OPEN, IN_PROGRESS, COMPLETED, CANCELLED.
+Unique(cycleId, employeeId) gives one review per employee per cycle, with a
+required actual reviewer independent of line-manager or authorization inference.
+Review states: DRAFT, SELF_REVIEW, MANAGER_REVIEW, HR_REVIEW, COMPLETED, CANCELLED.
+Submitted/completed times optional and ordered if both known.
+
+overallRating is a nullable nonnegative manually recorded score, not a calculated
+percentage. No assumed 1..5 scale: future policy defines rubric/upper bounds.
+Goals support measurement criteria plus qualitative or unit-bearing targetValue/
+achievedValue TEXT (e.g. "certification passed", "95%"). weight is a nullable
+nonnegative Decimal, without assuming a normalized percentage or sum-to-100.
+Goal states: NOT_STARTED, IN_PROGRESS, COMPLETED, MISSED, CANCELLED.
+No aggregate performance/progress source-of-truth fields or scoring engine.
+Multiple feedback records allowed, with author and MANAGER/PEER/SELF/HR/OTHER
+type. Type is not permission proof; identity/workflow rules remain services.
+
+### Complaints and recognition
+
+Complaints have reporter, optional assignee, actual resolver/time pair, optional
+resolution, confidential flag and soft deletion. Categories: WORKPLACE,
+MANAGEMENT, TEAM_CONFLICT, HARASSMENT, POLICY, SALARY, WORKLOAD, LEAVE, ATTENDANCE,
+OTHER. SALARY/ATTENDANCE classify complaints only, not payroll/attendance modules.
+ProjectPriority reused unchanged: LOW, MEDIUM, HIGH, URGENT; no Project/customer
+ownership relation or inherited Project/customer access policy.
+
+Complaint states: OPEN, UNDER_REVIEW, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED,
+REJECTED, CANCELLED. Required immutable status history records actual decision
+makers/reasons; initial NULL state allowed. Confidential defaults true; comment
+isInternal defaults true to avoid accidental disclosure. Both flags need future
+authorization checks and do not themselves implement row-level access control.
+
+Appreciation records identify recipient and giving employee; no recognition-user
+table. Categories PERFORMANCE, TEAMWORK, LEADERSHIP, CUSTOMER_FEEDBACK, INNOVATION,
+HELPFULNESS, MILESTONE, OTHER. Visibility PRIVATE (default), TEAM or COMPANY.
+TEAM audience membership must be explicitly defined by future HR policy; do not
+infer access from arbitrary ProjectTeam/customer membership.
+
+### Common tasks and files
+
+TaskWorkstream.HR already existed and is reused unchanged, with existing
+assignments, comments, status history and dependencies. No suitable generic
+typed task-reference table existed: HrTaskLink follows existing domain-link
+patterns. Each context FK independently nullable; SQL expression unique index
+deduplicates all sixteen combinations, including contextless task links.
+HR classification and authorization/subject consistency remain future writer
+checks, including subsequent task/context moves. Links do NOT synchronize
+leave/complaint/performance/task states or grant access to sensitive records.
+
+Task.projectId becomes nullable only to support standalone HR tasks. SQL requires
+HR workstream and NULL parentTaskId/sprintId when projectId is NULL, preventing
+NULL from bypassing existing composite parent/sprint ownership FKs. Project tasks
+retain all prior same-project hierarchy/sprint constraints. Standalone HR work
+still supports common assignment/history/comments/dependencies; no fake Project
+or parallel HR task engine. Generic Sprint remains project-owned and unchanged.
+
+File.projectId becomes nullable; all existing file/MinIO/version metadata retained.
+FileCategory (default OTHER) distinguishes EMPLOYEE_DOCUMENT, LEAVE_DOCUMENT,
+PERFORMANCE_DOCUMENT, COMPLAINT_ATTACHMENT, HR_DOCUMENT, OTHER. Existing rows
+retain OTHER. Four optional typed references—employeeId, leaveRequestId,
+performanceReviewId, complaintId—associate the exact physical revision without
+JSON polymorphism or another storage/file table. File uploader is NOT necessarily
+the employee subject. At most one HR context per file. Specific category requires
+its matching context; HR_DOCUMENT permits a general/one-context HR document,
+OTHER has no HR context.
+
+HR-category/context files must have NULL Project, preventing generic project
+resource/customer sharing. ProjectResource remains unchanged and project-required;
+its composite File FK cannot attach these standalone files to a Project.
+A partial unique index preserves standalone(fileSeriesId, version) uniqueness
+otherwise lost under NULL Project; existing project-scoped revision keys retained.
+At-most-one-current revision remains the previously documented application rule,
+including standalone series. Future uploads/revisions authorize ownership and
+serialize per series; historical references stay pinned to exact physical bytes.
+HR files keep MinIO storageKey/bucket metadata, never byte contents in PostgreSQL.
+No MinIO service/configuration changes made.
+
+### Audit, security and indexes
+
+Leave/complaint history rejects UPDATE, DELETE and TRUNCATE (append-only).
+LeaveRequest, PerformanceCycle, PerformanceReview, HrComplaint and
+EmployeeAppreciation include deletedAt and reject DELETE/TRUNCATE even if they
+have no children (also drafts). Referenced employees remain retained by RESTRICT;
+User soft deletion does not remove authorship. Other comments/goals/feedback
+remain editable metadata; future services must retain finalized context, reject
+destructive edits/deletion of finalized supporting evidence and coordinate
+soft-deletion visibility. No automatic lifecycle/status history/balance coupling.
+
+Indexed: leave type activity; balance user/type/year unique prefix, type/year;
+request employee/status/deleted, type, status/deleted, start/end/submitted dates,
+all decision actors; histories parent/time, actor/time; comments parent/time/
+author; cycles status/deleted/date/creator; review unique cycle/employee prefix,
+employee/reviewer/status/deleted; goals review/status/due date; feedback review/
+time, author/type; complaints reporter/assignee/resolver/status/deleted, priority,
+category, creation, confidentiality/deleted; recognition recipient/time, author,
+visibility/deleted/category; every task context; File category/deleted and HR FKs.
+
+Neither the Prisma schema nor development database has roles, permissions,
+user_roles or role_permissions. The conditional permission-record addition is
+therefore skipped; existing seed left unchanged. No replacement RBAC system.
+ProjectRole is staffing classification, not authentication authorization.
+Recommended hr.leave.*, hr.performance.*, hr.complaints.*, hr.appreciation.*
+permissions are future integration requirements once an actual compatible
+permission-record structure exists, never automatically assigned to all roles.
+
+Future HR authorization must enforce employee-owned leave/review access,
+authorized decision makers and confidential/internal complaint restrictions;
+appreciation audience and employee-subject file access require separate checks.
+Every lookup of attached Task/File metadata and MinIO downloads must apply HR
+checks, not only uploader/task assignee/Project/customer access. No authorization
+logic, notifications, UI/API/controllers/services, workflow/approval engine,
+automation, AWS, attendance/payroll/recruitment/onboarding/offboarding/training/
+expenses/benefits or Step 18 work is implemented.

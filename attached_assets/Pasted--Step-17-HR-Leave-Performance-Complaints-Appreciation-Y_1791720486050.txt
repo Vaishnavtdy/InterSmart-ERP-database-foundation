@@ -1,0 +1,888 @@
+# Step 17 — HR / Leave / Performance / Complaints / Appreciation
+
+You are continuing development of the existing **InterSmart Internal ERP**.
+
+This is **Step 17 only**.
+
+## Objective
+
+Implement the HR management database layer for:
+
+1. Leave management
+2. Leave balances
+3. Leave requests and approvals
+4. Performance management
+5. Performance goals
+6. Employee feedback
+7. HR complaints
+8. Complaint status/history
+9. Employee appreciation/recognition
+10. HR-related tasks using the existing common task engine
+11. HR-related files using the existing file system
+
+Do **not** implement UI pages, APIs, controllers, services, notifications, automation, or frontend work in this step.
+
+---
+
+# 1. IMPORTANT ARCHITECTURE RULES
+
+Before making changes:
+
+- Inspect the existing Prisma schema completely.
+- Reuse existing `users`, `departments`, `roles`, `permissions`, `files`, and `tasks`.
+- Do not create duplicate employee/user tables.
+- Do not create an `hr_users` table.
+- Do not create separate HR task tables.
+- Do not create another file/storage system.
+- Do not create a generic approval engine yet.
+- Do not create attendance management in this step.
+- Do not create payroll management.
+- Do not create employee login/authentication separately from `users`.
+- Do not introduce AWS services.
+- Do not introduce a multi-tenant organization model.
+- This ERP belongs only to **InterSmart**.
+
+Only internal InterSmart employees use the ERP.
+
+---
+
+# 2. LEAVE MANAGEMENT
+
+Create:
+
+## `leave_types`
+
+Fields:
+
+- `id` UUID PK
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `is_paid`
+- `requires_approval`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Example leave types:
+
+- CASUAL
+- SICK
+- ANNUAL
+- EMERGENCY
+- MATERNITY
+- PATERNITY
+- UNPAID
+- OTHER
+
+Do not hard-code these values as database rows unless seed data already exists in the project.
+
+---
+
+# 3. LEAVE BALANCES
+
+Create:
+
+## `leave_balances`
+
+Fields:
+
+- `id` UUID PK
+- `user_id` FK → users
+- `leave_type_id` FK → leave_types
+- `year`
+- `allocated_days` Decimal
+- `used_days` Decimal
+- `pending_days` Decimal
+- `adjusted_days` Decimal
+- `created_at`
+- `updated_at`
+
+Constraints:
+
+- Unique: `user_id + leave_type_id + year`
+
+Important:
+
+Do not store `remaining_days` as a source-of-truth field.
+
+Remaining leave should be calculated as:
+
+```text
+allocated_days
++ adjusted_days
+- used_days
+- pending_days
+```
+
+---
+
+# 4. LEAVE REQUESTS
+
+Create:
+
+## `leave_requests`
+
+Fields:
+
+- `id` UUID PK
+- `request_code` UNIQUE
+- `user_id` FK → users
+- `leave_type_id` FK → leave_types
+- `start_date`
+- `end_date`
+- `total_days` Decimal
+- `reason`
+- `status`
+- `submitted_at`
+- `approved_at` nullable
+- `approved_by_id` nullable → users
+- `rejected_at` nullable
+- `rejected_by_id` nullable → users
+- `rejection_reason` nullable
+- `cancelled_at` nullable
+- `cancelled_by_id` nullable → users
+- `cancellation_reason` nullable
+- `created_at`
+- `updated_at`
+
+Leave request status:
+
+```text
+DRAFT
+PENDING_APPROVAL
+APPROVED
+REJECTED
+CANCELLED
+```
+
+Important:
+
+Do not assume the employee's manager is always the approver.
+
+Store the actual approver in `approved_by_id` / `rejected_by_id`.
+
+---
+
+# 5. LEAVE REQUEST HISTORY
+
+Create:
+
+## `leave_request_status_history`
+
+Fields:
+
+- `id` UUID PK
+- `leave_request_id` FK
+- `from_status` nullable
+- `to_status`
+- `changed_by_id` FK → users
+- `reason` nullable
+- `created_at`
+
+This provides an audit trail for leave decisions.
+
+---
+
+# 6. LEAVE REQUEST COMMENTS
+
+Create:
+
+## `leave_request_comments`
+
+Fields:
+
+- `id` UUID PK
+- `leave_request_id` FK
+- `user_id` FK → users
+- `comment`
+- `created_at`
+- `updated_at`
+
+This allows HR and employees/managers to communicate around a leave request.
+
+---
+
+# 7. PERFORMANCE MANAGEMENT
+
+Create:
+
+## `performance_cycles`
+
+Fields:
+
+- `id` UUID PK
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `start_date`
+- `end_date`
+- `status`
+- `created_by_id` FK → users
+- `created_at`
+- `updated_at`
+
+Statuses:
+
+```text
+DRAFT
+OPEN
+IN_PROGRESS
+COMPLETED
+CANCELLED
+```
+
+A performance cycle can represent:
+
+- Annual review
+- Half-year review
+- Quarterly review
+- Probation review
+- Special review
+
+Do not create separate tables for each review type.
+
+---
+
+# 8. EMPLOYEE PERFORMANCE REVIEWS
+
+Create:
+
+## `performance_reviews`
+
+Fields:
+
+- `id` UUID PK
+- `performance_cycle_id` FK
+- `employee_id` FK → users
+- `reviewer_id` FK → users
+- `status`
+- `overall_rating` Decimal nullable
+- `strengths` nullable
+- `improvement_areas` nullable
+- `employee_comments` nullable
+- `reviewer_comments` nullable
+- `submitted_at` nullable
+- `completed_at` nullable
+- `created_at`
+- `updated_at`
+
+Statuses:
+
+```text
+DRAFT
+SELF_REVIEW
+MANAGER_REVIEW
+HR_REVIEW
+COMPLETED
+CANCELLED
+```
+
+Constraint:
+
+Prefer a unique constraint:
+
+```text
+performance_cycle_id + employee_id
+```
+
+unless the existing business model clearly requires multiple reviews per employee within one cycle.
+
+---
+
+# 9. PERFORMANCE GOALS
+
+Create:
+
+## `performance_goals`
+
+Fields:
+
+- `id` UUID PK
+- `performance_review_id` FK
+- `title`
+- `description` nullable
+- `measurement_criteria` nullable
+- `target_value` nullable
+- `achieved_value` nullable
+- `weight` Decimal nullable
+- `status`
+- `due_date` nullable
+- `completed_at` nullable
+- `created_at`
+- `updated_at`
+
+Statuses:
+
+```text
+NOT_STARTED
+IN_PROGRESS
+COMPLETED
+MISSED
+CANCELLED
+```
+
+Do not store calculated overall performance percentages here.
+
+---
+
+# 10. PERFORMANCE FEEDBACK
+
+Create:
+
+## `performance_feedback`
+
+Fields:
+
+- `id` UUID PK
+- `performance_review_id` FK
+- `from_user_id` FK → users
+- `feedback_type`
+- `feedback`
+- `created_at`
+- `updated_at`
+
+Feedback types:
+
+```text
+MANAGER
+PEER
+SELF
+HR
+OTHER
+```
+
+This allows multiple feedback entries without adding multiple feedback columns to the review.
+
+---
+
+# 11. HR COMPLAINTS
+
+Create:
+
+## `hr_complaints`
+
+Fields:
+
+- `id` UUID PK
+- `complaint_code` UNIQUE
+- `reported_by_id` FK → users
+- `assigned_to_id` nullable → users
+- `subject`
+- `description`
+- `category`
+- `priority`
+- `status`
+- `is_confidential`
+- `resolution` nullable
+- `resolved_at` nullable
+- `resolved_by_id` nullable → users
+- `created_at`
+- `updated_at`
+- `deleted_at` nullable
+
+Complaint categories:
+
+```text
+WORKPLACE
+MANAGEMENT
+TEAM_CONFLICT
+HARASSMENT
+POLICY
+SALARY
+WORKLOAD
+LEAVE
+ATTENDANCE
+OTHER
+```
+
+Priorities:
+
+```text
+LOW
+MEDIUM
+HIGH
+URGENT
+```
+
+Statuses:
+
+```text
+OPEN
+UNDER_REVIEW
+ASSIGNED
+IN_PROGRESS
+RESOLVED
+CLOSED
+REJECTED
+CANCELLED
+```
+
+Important:
+
+Do not expose complaint information through generic project/customer permissions.
+
+Access must later be controlled through HR-specific permissions.
+
+---
+
+# 12. HR COMPLAINT HISTORY
+
+Create:
+
+## `hr_complaint_status_history`
+
+Fields:
+
+- `id` UUID PK
+- `complaint_id` FK
+- `from_status` nullable
+- `to_status`
+- `changed_by_id` FK → users
+- `reason` nullable
+- `created_at`
+
+This is required because complaints can contain sensitive HR information.
+
+---
+
+# 13. HR COMPLAINT COMMENTS
+
+Create:
+
+## `hr_complaint_comments`
+
+Fields:
+
+- `id` UUID PK
+- `complaint_id` FK
+- `user_id` FK → users
+- `comment`
+- `is_internal`
+- `created_at`
+- `updated_at`
+
+`is_internal` allows HR-only internal discussion to be separated from normal complaint communication.
+
+---
+
+# 14. EMPLOYEE APPRECIATION
+
+Create:
+
+## `employee_appreciations`
+
+Fields:
+
+- `id` UUID PK
+- `appreciation_code` UNIQUE
+- `employee_id` FK → users
+- `given_by_id` FK → users
+- `title`
+- `message`
+- `category`
+- `visibility`
+- `created_at`
+- `updated_at`
+
+Categories:
+
+```text
+PERFORMANCE
+TEAMWORK
+LEADERSHIP
+CUSTOMER_FEEDBACK
+INNOVATION
+HELPFULNESS
+MILESTONE
+OTHER
+```
+
+Visibility:
+
+```text
+PRIVATE
+TEAM
+COMPANY
+```
+
+Do not create a separate recognition-user table.
+
+---
+
+# 15. HR TASK INTEGRATION
+
+Reuse the existing `tasks` table.
+
+Do NOT create:
+
+```text
+hr_tasks
+employee_tasks
+leave_tasks
+performance_tasks
+```
+
+Instead:
+
+```text
+tasks.workstream = HR
+```
+
+If the existing `TaskWorkstream` enum does not contain `HR`, add `HR`.
+
+Use the existing:
+
+- `tasks`
+- `task_assignments`
+- `task_comments`
+- `task_status_history`
+- `task_dependencies`
+
+Do not duplicate any of these.
+
+If useful, add an optional HR reference model:
+
+## `hr_task_links`
+
+Fields:
+
+- `id`
+- `task_id`
+- `leave_request_id` nullable
+- `performance_review_id` nullable
+- `complaint_id` nullable
+- `appreciation_id` nullable
+- `created_at`
+
+However, before creating this table, inspect whether the existing architecture already has a suitable generic task-reference pattern.
+
+Do not create unnecessary polymorphic JSON fields.
+
+---
+
+# 16. HR FILES
+
+Reuse the existing:
+
+```text
+files
+project_resources
+```
+
+Do not create another file table.
+
+Because HR files are not necessarily project-related, inspect the existing `files` model first.
+
+If `files.project_id` is currently mandatory, make the smallest safe schema adjustment required to allow non-project files.
+
+If required, add:
+
+```text
+file_category
+```
+
+or an equivalent field to identify HR documents.
+
+Possible HR resource categories:
+
+```text
+EMPLOYEE_DOCUMENT
+LEAVE_DOCUMENT
+PERFORMANCE_DOCUMENT
+COMPLAINT_ATTACHMENT
+HR_DOCUMENT
+OTHER
+```
+
+Do not store actual file contents in PostgreSQL.
+
+Continue using MinIO for physical file storage.
+
+---
+
+# 17. PERMISSIONS
+
+Reuse the existing:
+
+```text
+roles
+permissions
+user_roles
+role_permissions
+```
+
+Do not create a second authorization system.
+
+Add HR-related permissions only if the existing permission structure supports permission records.
+
+Recommended permissions:
+
+```text
+hr.leave.read
+hr.leave.create
+hr.leave.approve
+hr.leave.reject
+
+hr.performance.read
+hr.performance.create
+hr.performance.review
+hr.performance.manage
+
+hr.complaints.read
+hr.complaints.create
+hr.complaints.manage
+hr.complaints.resolve
+
+hr.appreciation.read
+hr.appreciation.create
+hr.appreciation.manage
+```
+
+Do not automatically assign permissions to every role.
+
+Respect the existing role-permission architecture.
+
+---
+
+# 18. SECURITY / PRIVACY
+
+HR information is more sensitive than normal project data.
+
+Design the schema so that later application-level authorization can enforce:
+
+- Employees can view their own leave information.
+- Employees can create their own leave requests.
+- Authorized managers/HR can approve leave.
+- Employees can access their own performance review information according to workflow.
+- HR can manage performance records.
+- Complaint records are restricted to authorized HR/management users.
+- Confidential complaints must have additional authorization checks.
+- Employee appreciation visibility must be respected.
+
+Do not implement authorization logic in this migration.
+
+Only prepare the database correctly.
+
+---
+
+# 19. AUDITABILITY
+
+Use status-history tables for:
+
+- Leave requests
+- HR complaints
+
+Performance and appreciation records should retain timestamps and responsible users.
+
+Do not physically delete finalized financial or HR history.
+
+Where appropriate, use:
+
+```text
+deleted_at
+```
+
+for soft deletion rather than hard deletion.
+
+---
+
+# 20. DATABASE DESIGN RULES
+
+Follow the existing ERP conventions:
+
+- UUID primary keys
+- Foreign keys
+- Proper indexes
+- Unique constraints
+- `timestamptz` through Prisma DateTime
+- Decimal/Numeric for numeric business values
+- No unnecessary JSONB
+- No calculated source-of-truth fields
+- No duplicated entities
+- No AWS dependencies
+- No tenant/organization columns
+
+Add indexes for common lookups such as:
+
+```text
+leave_requests.user_id
+leave_requests.status
+leave_requests.start_date
+leave_requests.end_date
+
+leave_balances.user_id
+leave_balances.year
+
+performance_reviews.employee_id
+performance_reviews.performance_cycle_id
+performance_reviews.status
+
+performance_goals.performance_review_id
+
+hr_complaints.reported_by_id
+hr_complaints.assigned_to_id
+hr_complaints.status
+hr_complaints.priority
+hr_complaints.created_at
+
+employee_appreciations.employee_id
+employee_appreciations.given_by_id
+```
+
+Use composite indexes where they materially improve expected queries.
+
+---
+
+# 21. DO NOT OVERBUILD
+
+Do NOT implement:
+
+- Attendance
+- Payroll
+- Salary processing
+- Recruitment
+- Employee onboarding
+- Employee offboarding
+- Training management
+- Expense management
+- Benefits management
+- Notification engine
+- Email automation
+- Generic approval engine
+- Workflow engine
+- HR dashboard
+- Frontend
+- APIs
+- Controllers
+- Services
+- WebSockets
+- AI features
+
+These will be separate steps if required.
+
+---
+
+# 22. MIGRATION REQUIREMENTS
+
+Create one clean Prisma migration for this step.
+
+Use a migration name similar to:
+
+```bash
+npx prisma migrate dev --name add_hr_leave_performance
+```
+
+Do NOT:
+
+```text
+prisma migrate reset
+```
+
+Do NOT:
+
+- delete previous migrations
+- recreate the database
+- drop existing tables
+- overwrite existing schema definitions
+- remove existing business data
+
+If an existing model needs modification, make the smallest compatible change.
+
+---
+
+# 23. VALIDATION
+
+After implementing the schema:
+
+Run:
+
+```bash
+npx prisma validate
+```
+
+Then:
+
+```bash
+npx prisma generate
+```
+
+Then run the project's existing:
+
+```text
+TypeScript checks
+Lint
+Tests
+Build
+```
+
+Use the actual scripts defined in `package.json`.
+
+Fix only issues introduced by Step 17.
+
+---
+
+# 24. DOCUMENTATION
+
+Update the project's database/schema documentation if it already exists.
+
+Document:
+
+- New HR entities
+- Relationships
+- Leave balance calculation
+- Leave request lifecycle
+- Performance lifecycle
+- Complaint lifecycle
+- Appreciation model
+- HR security considerations
+
+Do not create duplicate documentation files if equivalent documentation already exists.
+
+---
+
+# 25. FINAL VALIDATION CHECKLIST
+
+Before finishing, verify:
+
+- [ ] Existing schema was inspected first.
+- [ ] No organization/tenant model introduced.
+- [ ] Existing users table reused.
+- [ ] Existing roles/permissions reused.
+- [ ] Existing files table reused.
+- [ ] Existing tasks table reused.
+- [ ] Leave types created.
+- [ ] Leave balances created.
+- [ ] Leave requests created.
+- [ ] Leave history created.
+- [ ] Leave comments created.
+- [ ] Performance cycles created.
+- [ ] Performance reviews created.
+- [ ] Performance goals created.
+- [ ] Performance feedback created.
+- [ ] HR complaints created.
+- [ ] Complaint history created.
+- [ ] Complaint comments created.
+- [ ] Employee appreciation created.
+- [ ] HR workstream supported.
+- [ ] HR permissions added only if compatible with current permission architecture.
+- [ ] Proper indexes added.
+- [ ] Proper foreign keys added.
+- [ ] Unique constraints added.
+- [ ] No calculated remaining leave stored as source of truth.
+- [ ] No duplicate task system.
+- [ ] No duplicate file system.
+- [ ] No AWS services.
+- [ ] Migration created successfully.
+- [ ] `prisma validate` passes.
+- [ ] `prisma generate` passes.
+- [ ] Existing tests/build/lint pass.
+- [ ] Documentation updated.
+
+## STOP CONDITION
+
+After completing Step 17 and validation, **STOP**.
+
+Do not automatically implement Step 18.
+
+Wait for the next instruction.

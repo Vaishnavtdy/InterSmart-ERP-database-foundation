@@ -11,7 +11,8 @@ current-version uniqueness cannot be cleanly represented by the existing
 Prisma configuration. Multiple current rows are possible; this is not evidence
 that a partial index was accidentally omitted.
 
-**How to apply:** Future revision writers must serialize per project/series and
+**How to apply:** Future revision writers must serialize per project/series (or
+per standalone HR series, not all NULL-project files as one scope) and
 atomically clear old current flags while recording the replacement. Soft-delete
 writers must also clear affected business references in the same transaction;
 the database does not coordinate their flags automatically.

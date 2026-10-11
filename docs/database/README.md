@@ -1788,3 +1788,209 @@ or granting permissions. Intended future codes: meeting.read/create/update/cance
 manage and notification.read/manage/preferences, once a compatible system exists.
 No frontend, APIs, controllers, services, auth logic, chat, tenant model, AWS,
 calendar app, real-time delivery, workers, cron/automation or Step 19 implemented.
+
+## Step 19 — Dashboard / Reporting / KPI data layer
+
+Migration `20261011150802_add_reporting_dashboard_kpi` adds nine generic
+configuration/target tables, six enums, fourteen RESTRICT foreign keys and the
+missing Project.startDate index. No transactional record or prior migration
+changed beyond User/Department inverse relations and that Project index.
+Earlier step scope exclusions describe the historical implementation.
+
+```
+Transactional tables
+        ↓
+Authorized application queries/services (future)
+        ↓
+KPI calculations (future)
+        ↓
+Reports / dashboards (future UI)
+```
+
+**Dashboard values are derived. Transactional records are authoritative.**
+There is no report executor or calculation service in this database step.
+Definition records prepare configuration, not computed results or a warehouse.
+
+### New tables
+
+All ids/FKs UUID, createdAt defaults now, updatedAt Prisma-managed, DateTime
+TIMESTAMPTZ(6). Raw SQL writers must supply/update updatedAt. Names VARCHAR(255),
+codes VARCHAR(64), descriptions nullable TEXT. Required configuration/layout
+JSONB objects have no implicit default; SQL rejects JSON null, scalars and root
+arrays. Full metadata schemas and rejection of nested result payloads are future
+application validations; an object-shape check is not a semantic/security filter.
+
+| Model / table | Specific fields and constraints |
+| --- | --- |
+| Report / reports | unique code, name, nullable description, required reportType/scope/createdById; isSystem false, isActive true |
+| ReportConfiguration / report_configurations | reportId, configuration JSONB, positive version default 1, createdById; unique(reportId,version) |
+| SavedReport / saved_reports | reportId, userId, name, nullable description, configuration JSONB, isDefault false; unique(userId,reportId,name) |
+| Dashboard / dashboards | unique code, name, nullable description, required scope; isSystem false, isActive true |
+| DashboardWidget / dashboard_widgets | dashboardId, name, code, required widgetType/dataSource/configuration JSONB; nonnegative sortOrder default 0, isActive true; unique(dashboardId,code) |
+| UserDashboardPreference / user_dashboard_preferences | userId, dashboardId, required layout JSONB, isDefault false; unique(userId,dashboardId) |
+| KpiDefinition / kpi_definitions | unique code, name, nullable description, required category/scope/unit/calculationKey; nullable targetValue DECIMAL(20,4), isActive true |
+| KpiTarget / kpi_targets | kpiDefinitionId, required targetValue DECIMAL(20,4), effectiveFrom, nullable effectiveUntil, createdById |
+| KpiAssignment / kpi_assignments | kpiDefinitionId, nullable userId/departmentId, nullable targetValue DECIMAL(20,4), effectiveFrom, nullable effectiveUntil, createdById |
+
+Report and Dashboard reuse ReportingScope: GLOBAL, SALES, ACCOUNTS, PMO, PROJECT,
+UI, UX, DEVELOPMENT, QA, HR, EMPLOYEE. ReportType: DASHBOARD, TABLE, SUMMARY,
+ANALYTICS, EXPORT. DashboardWidgetType: KPI, TABLE, BAR_CHART, LINE_CHART,
+PIE_CHART, DONUT_CHART, PROGRESS, LIST, TREND.
+
+KpiScope intentionally omits PROJECT per the requested list: GLOBAL, SALES,
+ACCOUNTS, PMO, UI, UX, DEVELOPMENT, QA, HR, EMPLOYEE. KpiCategory: PROJECT, SALES,
+FINANCE, OPERATIONS, QUALITY, HR, RESOURCE, CUSTOMER. KpiUnit: COUNT, PERCENTAGE,
+CURRENCY, HOURS, DAYS, RATIO, OTHER. Category PROJECT is supported independently
+of scope; authorized query filters supply specific project context later.
+Management uses a GLOBAL definition; PC/team-lead dashboards can use PROJECT/
+PMO/EMPLOYEE definitions. Scope is taxonomy, not an employee permission grant.
+
+### Configuration and saved views
+
+ReportConfiguration contains versioned columns, filters, grouping, sorting, date
+range and chart presentation metadata. SavedReport contains an employee's named
+view, not an executed result. Names are unique per user/report using PostgreSQL's
+normal case-sensitive comparison; future UX may explicitly normalize names.
+Different employees and different reports can reuse names. Neither configuration
+version numbers nor saved views introduce a report-history/audit engine.
+Writers must serialize version allocation or retry uniqueness conflicts; there
+is no automatically maintained "current version" pointer.
+
+DashboardWidget.dataSource and KpiDefinition.calculationKey are nonblank
+VARCHAR(128) application-whitelisted metric/query identifiers, not executable
+SQL, stored expressions, formulas or a new metric registry. Examples
+PROJECT_STATUS_SUMMARY, OPEN_BUGS, PAYMENT_PENDING, TASK_COMPLETION and
+LEAVE_SUMMARY, or ACTIVE_PROJECTS/TASK_COMPLETION_RATE for KPI calculations.
+Multiple definitions/widgets may use the same key with different metadata.
+Widget codes unique only within their dashboard.
+
+Configuration accepts metadata such as dateRange/filters/groupBy/sortBy/limit/
+chartSettings; layout only positions, sizes and hidden widget identifiers.
+Only these four specified payloads use JSONB. Do not store actual_total_projects,
+actual_revenue, actual_bug_count, actual_completion_percentage, query results,
+financial rows, employee data, exported bytes or raw SQL in these objects.
+Future services validate allowed keys, value types, bounded limits, compatible
+columns/groupings and widget membership. Use parameterized registered queries.
+Saved filters and hidden widgets cannot narrow or expand authorization by
+themselves; enforce access before aggregating and resolving ids from JSON.
+
+isDefault is presentation preference metadata, not a permission or global
+policy. Only requested pair/name uniqueness is enforced; a single-default policy
+within a report/dashboard scope must be decided by future UX and written
+atomically, not assumed to mean one default across all scopes here.
+isSystem marks application-predefined records, not public access. isActive
+controls availability, not whether an actor may read/edit the configuration.
+
+### KPI definition, target, assignment and actual value
+
+- **Definition:** metric identity, category, scope, unit, calculation key and
+  optional baseline target; never a cached measurement.
+- **Target:** authored time-dependent goal for a definition (annual/quarterly/
+  other period), retaining creator and exact DECIMAL(20,4) value.
+- **Assignment:** authored employee OR department applicability with optional
+  target override and period. SQL requires exactly one subject to avoid
+  unsupported ambiguity; the creator is separate from the target employee.
+- **Actual value:** derived later from authorized transactional queries at a
+  defined cutoff/period. No actual-value field, table, score or snapshot added.
+
+Zero and negative finite targets are valid generic policy values; NaN/infinities
+are prohibited. Do not impose global 0–100 percentage, integer-only COUNT or
+nonnegative finance rules across heterogeneous signed metrics. Future registered
+calculations enforce unit-specific semantics, currency, denominators and rounding.
+No currency column or business-result JSON added to the requested KPI structure;
+financial query definitions must identify permitted currency/valuation policy.
+
+Target and assignment periods are half-open [effectiveFrom,effectiveUntil),
+with NULL upper bound open-ended and end strictly after start. Time-overlap,
+baseline-vs-period-vs-assignment precedence, department changes, target version
+selection and prorating remain future business rules; no automatic inheritance
+or exclusion constraint invents them. An assignment with NULL target has
+applicability only until a future explicit resolution policy is selected.
+Do not infer team access from department membership, report ownership, a KPI
+assignment or a user's manager relationship.
+
+### Authoritative reporting sources and metric semantics
+
+| Area / future dashboard | Existing sources |
+| --- | --- |
+| Management / PMO / PC / project KPI | projects, project_teams, project_categories, project_status_histories, project_actions, tasks, task_assignments/status_history, department workstream specifications and sprints |
+| Sales / customer activity | customers, customer_contacts, leads/lead_activities, proposals/proposal_versions/items, projects, payment_requests/payments, project_comments, meetings |
+| Accounts / finance | project_budgets, budget_allocations, budget_transactions, payment_requests, payments and their histories |
+| UI / UX / development | project_ui/ui_pages/ui_sections, project_ux/ux_screens/ux_flows, project_development/development_modules/sprints/deployments, their common tasks/links |
+| QA / quality | project_qa, qa_test_cases/steps/executions/builds, bugs and common task links/history/assignments |
+| HR / employee / team performance | users/departments, tasks, task_assignments, task_status_history, performance_cycles/reviews/goals/feedback, leave_requests, hr_complaints, employee_appreciations |
+| Operations / resource | project_teams, common tasks and department links, infrastructure/go-live/checklists, meetings and project_actions |
+
+Future query contracts define active-project statuses (ONGOING, not a new ACTIVE
+enum), completed/pending/blocked/cancelled task sets, open-bug states and timeframe.
+Overdue task/request metrics derive nonterminal current state plus dueDate at an
+explicit cutoff; do not depend solely on a stale OVERDUE request status.
+Projects by PM/PC/customer/category/priority use existing dimensions, never new
+counters. Historical team/assignee metrics use effective staffing/assignment
+history, not today's assignee or current user department alone.
+
+Avoid duplicate counts caused by joining tasks, assignee history, participants or
+budget allocations; aggregate each fact at its correct grain first. Include
+standalone HR/MEETING tasks only in explicitly permitted employee/team views,
+not fake Project totals. Existing formal HR review ratings/goals and authored
+daily workstream percentages remain unchanged; do not turn them into a new
+permanently cached employee score or automatically average them into Project
+progress. Query metrics define the relevant work/status basis and denominator.
+
+Financial reporting must preserve money semantics: configured opening
+ProjectBudget.totalBudget and matching INITIAL_ALLOCATION are the same funds,
+not two additive sources; internal ALLOCATION redistributes rather than increases
+funding. Reversal effect depends on original transaction classification/provenance,
+not only sign. Distinguish planned allocation from actual expenses/ledger usage.
+Do not join budgets/allocations/payments then sum duplicated rows, mix currencies
+or equate approved requests with confirmed receipts. Confirmed payments, payment
+request approvals, pending payments and ledger usage are distinct metrics.
+Reversed/cancelled receipts affect paid totals; request status reconciliation and
+ownership/currency consistency are future authorized writer/query contracts.
+An uninitialized ledger is not authoritative zero usage/funding.
+
+### Index audit
+
+All requested lookup dimensions were inspected before adding indexes:
+- Project status/priority have existing (dimension,deletedAt) indexes; customer,
+  salesperson, PM, PC and category indexed; plannedEndDate indexed. Only startDate
+  missing, so `projects_start_date_idx` added.
+- Task projectId/assignee/status covered by existing composite leading keys;
+  workstream, priority, dueDate, sprintId individually indexed.
+- Payment project/status, customer, status and paymentDate already indexed;
+  PaymentRequest project/status, customer, status/deletedAt and dueDate covered.
+- Bug project/deletedAt, status/deletedAt, severity, priority, assignee and
+  createdAt covered. Leave user/status/deletedAt, status/deletedAt, start/end
+  covered. Meeting organizer/project/customer/startAt and status/startAt covered.
+
+New tables index scope/active/type/creator, definition category/calculation key,
+dashboard active widget order, reverse FK lookups, target definition/date and
+assignment definition/user/department/date plus expiry and author. Unique keys
+already cover their leading FK lookups, so no duplicate single-column indexes.
+No speculative transactional indexes, JSON GIN indexes, materialized views,
+Redis cache, warehouse, Elasticsearch, ClickHouse or separate reporting database.
+Optimize measured query plans only after real calculations exist.
+
+### Access, seeds, exports and excluded scope
+
+Canonical roles/permissions/user_roles/role_permissions remain absent; there is
+no RBAC implementation to reuse or seed. ProjectRole is staffing, not permission.
+This is an explicit dependency for future reporting services, not a claim that
+RBAC was implemented. No new roles/permission engine, grants, hard-coded role
+scope rules or data exposure. Intended future permission identifiers:
+report.read/create/update/delete, dashboard.read/manage, kpi.read/manage.
+Future services must use the actual canonical auth system once available and
+enforce owner, scope and source-record authorization before querying/returning
+metadata, aggregates, row details, exports or sensitive HR/finance information.
+
+Existing department/category seed unchanged. No system reports, KPIs, users,
+dashboard widgets or default layout rows seeded because no executing application
+requires them yet. Future seeding must attribute Report/Target authors to real
+employees, never invent an administrative account.
+
+CSV/Excel/PDF exports will be dynamic; ReportType.EXPORT is only a definition,
+not an export-job/result table or stored PostgreSQL export content. Future KPI
+alerts reuse Notifications; no report/dashboard/KPI notification or audit tables.
+Existing notifications, calendar sources and histories untouched.
+No UI/API/controllers/services, calculations, permission grants, export jobs,
+actual values/progress/revenue caches, AWS, tenants or Step 20 implemented.

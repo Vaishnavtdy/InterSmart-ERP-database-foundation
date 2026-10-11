@@ -7,3 +7,4 @@
 - [Infrastructure write contracts](infrastructure-write-contracts.md) — validate cross-module Project ownership and serialize go-live readiness/checklist writes.
 - [HR write contracts](hr-write-contracts.md) — serialize leave decisions/history/balances; actual HR actors are not inferred from managers or task assignees.
 - [Meeting/notification writes](meeting-notification-write-contracts.md) — coordinate meeting history; reauthorize copied notification content; delivery is not read acknowledgement.
+- [Reporting contracts](reporting-contracts.md) — metadata/targets are not actuals; authorize before aggregation and define target/default scope policies explicitly.

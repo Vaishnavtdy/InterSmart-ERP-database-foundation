@@ -2,6 +2,106 @@
 
 ```mermaid
 erDiagram
+  USERS ||--o{ REPORTS : "real definition author"
+  REPORTS ||--o{ REPORT_CONFIGURATIONS : "versioned metadata only"
+  USERS ||--o{ REPORT_CONFIGURATIONS : "configuration author"
+  REPORTS ||--o{ SAVED_REPORTS : "named personal configuration"
+  USERS ||--o{ SAVED_REPORTS : "saved view owner"
+  DASHBOARDS ||--o{ DASHBOARD_WIDGETS : "query and presentation metadata"
+  USERS ||--o{ USER_DASHBOARD_PREFERENCES : "personal layout"
+  DASHBOARDS ||--o{ USER_DASHBOARD_PREFERENCES : "one per employee"
+  KPI_DEFINITIONS ||--o{ KPI_TARGETS : "time-dependent goals"
+  USERS ||--o{ KPI_TARGETS : "actual author"
+  KPI_DEFINITIONS ||--o{ KPI_ASSIGNMENTS : "subject applicability"
+  USERS o|--o{ KPI_ASSIGNMENTS : "employee OR department"
+  DEPARTMENTS o|--o{ KPI_ASSIGNMENTS : "department OR employee"
+  USERS ||--o{ KPI_ASSIGNMENTS : "actual author, not subject"
+
+  REPORTS {
+    uuid id PK
+    string name
+    string code UK
+    string description "nullable"
+    ReportType report_type
+    ReportingScope scope "taxonomy, not access grant"
+    boolean is_system
+    boolean is_active
+    uuid created_by_id FK
+  }
+  REPORT_CONFIGURATIONS {
+    uuid id PK
+    uuid report_id FK "unique with positive version"
+    jsonb configuration "object metadata, not results"
+    int version
+    uuid created_by_id FK
+  }
+  SAVED_REPORTS {
+    uuid id PK
+    uuid report_id FK
+    uuid user_id FK
+    string name "unique with user and report"
+    string description "nullable"
+    jsonb configuration "metadata only"
+    boolean is_default
+  }
+  DASHBOARDS {
+    uuid id PK
+    string name
+    string code UK
+    string description "nullable"
+    ReportingScope scope
+    boolean is_system
+    boolean is_active
+  }
+  DASHBOARD_WIDGETS {
+    uuid id PK
+    uuid dashboard_id FK
+    string name
+    string code "unique within dashboard"
+    DashboardWidgetType widget_type
+    string data_source "registered application query key"
+    jsonb configuration "metadata, never actuals"
+    int sort_order
+    boolean is_active
+  }
+  USER_DASHBOARD_PREFERENCES {
+    uuid id PK
+    uuid user_id FK "unique with dashboard"
+    uuid dashboard_id FK
+    jsonb layout "presentation only"
+    boolean is_default
+  }
+  KPI_DEFINITIONS {
+    uuid id PK
+    string name
+    string code UK
+    string description "nullable"
+    KpiCategory category
+    KpiScope scope
+    KpiUnit unit
+    string calculation_key "registered application calculation"
+    decimal target_value "nullable baseline goal, not actual"
+    boolean is_active
+  }
+  KPI_TARGETS {
+    uuid id PK
+    uuid kpi_definition_id FK
+    decimal target_value "finite exact goal, not actual"
+    timestamptz effective_from
+    timestamptz effective_until "nullable, strictly after start"
+    uuid created_by_id FK
+  }
+  KPI_ASSIGNMENTS {
+    uuid id PK
+    uuid kpi_definition_id FK
+    uuid user_id FK "nullable; XOR department"
+    uuid department_id FK "nullable; XOR employee"
+    decimal target_value "nullable finite override goal"
+    timestamptz effective_from
+    timestamptz effective_until "nullable, strictly after start"
+    uuid created_by_id FK
+  }
+
   USERS ||--o{ MEETINGS : "organizes"
   USERS o|--o{ MEETINGS : "actual canceller"
   PROJECTS o|--o{ MEETINGS : "optional project"
@@ -1702,3 +1802,17 @@ TIMESTAMPTZ(6). Common createdAt/updatedAt omitted from compact entities except
 created-only notification/history/link blocks. Ownership alignment and sensitive
 notification/attachment visibility remain future authorized service checks.
 No UI/API/calendar/chat/reminder/delivery engine, RBAC, AWS, tenants or Step 19.
+
+Step 19: Reporting tables hold definitions/configurations/layouts and authored
+targets only. Actual measurements calculated later from authorized transactional
+queries, never stored as dashboard counters, project progress, financial summaries
+or KPI actuals. Nine generic tables, six enums, fourteen RESTRICT FKs. ReportingScope
+shared by Report/Dashboard, while requested KpiScope omits PROJECT. Four JSONB
+objects for metadata only; structural checks cannot validate nested semantics or
+authorize users. Common createdAt/updatedAt TIMESTAMPTZ(6) omitted from compact
+entities; DECIMAL(20,4) finite signed targets. Assignment XOR employee/department,
+author separate; half-open time periods and resolution/overlap policy deferred.
+Existing transactional indexes cover requested dimensions except Project.startDate,
+now indexed. No query executor, RBAC implementation/grants, seed defaults,
+materialized/cache/result/export tables, duplicate notifications/audits/calendar,
+warehouse, AWS, UI/API or Step 20.

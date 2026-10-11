@@ -34,6 +34,7 @@ model Department {
   users             User[]
   projectTeams      ProjectTeam[]
   budgetAllocations BudgetAllocation[]
+  kpiAssignments    KpiAssignment[]
 
   @@map("departments")
 }
@@ -167,6 +168,13 @@ model User {
   uploadedMeetingAttachments  MeetingAttachment[]
   notifications               Notification[]
   notificationPreferences     NotificationPreference[]
+  createdReports              Report[]
+  createdReportConfigurations ReportConfiguration[]
+  savedReports                SavedReport[]
+  dashboardPreferences        UserDashboardPreference[]
+  createdKpiTargets           KpiTarget[]
+  assignedKpis                KpiAssignment[]               @relation("KpiAssignmentUser")
+  createdKpiAssignments       KpiAssignment[]               @relation("KpiAssignmentCreator")
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -588,6 +596,7 @@ model Project {
   @@index([status, deletedAt])
   @@index([priority, deletedAt])
   @@index([plannedEndDate])
+  @@index([startDate])
   @@index([createdAt])
   @@map("projects")
 }
@@ -3602,4 +3611,256 @@ model NotificationPreference {
 
   @@unique([userId, notificationType])
   @@map("notification_preferences")
+}
+
+enum ReportType {
+  DASHBOARD
+  TABLE
+  SUMMARY
+  ANALYTICS
+  EXPORT
+}
+
+// Reports and dashboards share the same vocabulary, not permission grants.
+enum ReportingScope {
+  GLOBAL
+  SALES
+  ACCOUNTS
+  PMO
+  PROJECT
+  UI
+  UX
+  DEVELOPMENT
+  QA
+  HR
+  EMPLOYEE
+}
+
+enum DashboardWidgetType {
+  KPI
+  TABLE
+  BAR_CHART
+  LINE_CHART
+  PIE_CHART
+  DONUT_CHART
+  PROGRESS
+  LIST
+  TREND
+}
+
+enum KpiCategory {
+  PROJECT
+  SALES
+  FINANCE
+  OPERATIONS
+  QUALITY
+  HR
+  RESOURCE
+  CUSTOMER
+}
+
+// Requested KPI scopes intentionally omit PROJECT.
+enum KpiScope {
+  GLOBAL
+  SALES
+  ACCOUNTS
+  PMO
+  UI
+  UX
+  DEVELOPMENT
+  QA
+  HR
+  EMPLOYEE
+}
+
+enum KpiUnit {
+  COUNT
+  PERCENTAGE
+  CURRENCY
+  HOURS
+  DAYS
+  RATIO
+  OTHER
+}
+
+model Report {
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String         @db.VarChar(255)
+  code        String         @unique @db.VarChar(64)
+  description String?        @db.Text
+  reportType  ReportType     @map("report_type")
+  scope       ReportingScope
+  isSystem    Boolean        @default(false) @map("is_system")
+  isActive    Boolean        @default(true) @map("is_active")
+  createdById String         @map("created_by_id") @db.Uuid
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy      User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  configurations ReportConfiguration[]
+  savedReports   SavedReport[]
+
+  @@index([scope, isActive])
+  @@index([reportType])
+  @@index([createdById])
+  @@map("reports")
+}
+
+model ReportConfiguration {
+  id            String   @id @default(uuid()) @db.Uuid
+  reportId      String   @map("report_id") @db.Uuid
+  configuration Json     @db.JsonB
+  version       Int      @default(1)
+  createdById   String   @map("created_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  report    Report @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  createdBy User   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([reportId, version])
+  @@index([createdById])
+  @@map("report_configurations")
+}
+
+model SavedReport {
+  id            String   @id @default(uuid()) @db.Uuid
+  reportId      String   @map("report_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  name          String   @db.VarChar(255)
+  description   String?  @db.Text
+  configuration Json     @db.JsonB
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, reportId, name])
+  @@index([reportId])
+  @@map("saved_reports")
+}
+
+model Dashboard {
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String         @db.VarChar(255)
+  code        String         @unique @db.VarChar(64)
+  description String?        @db.Text
+  scope       ReportingScope
+  isSystem    Boolean        @default(false) @map("is_system")
+  isActive    Boolean        @default(true) @map("is_active")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  widgets         DashboardWidget[]
+  userPreferences UserDashboardPreference[]
+
+  @@index([scope, isActive])
+  @@map("dashboards")
+}
+
+model DashboardWidget {
+  id            String              @id @default(uuid()) @db.Uuid
+  dashboardId   String              @map("dashboard_id") @db.Uuid
+  name          String              @db.VarChar(255)
+  code          String              @db.VarChar(64)
+  widgetType    DashboardWidgetType @map("widget_type")
+  // Application-whitelisted query identifier, never executable SQL.
+  dataSource    String              @map("data_source") @db.VarChar(128)
+  configuration Json                @db.JsonB
+  sortOrder     Int                 @default(0) @map("sort_order")
+  isActive      Boolean             @default(true) @map("is_active")
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Restrict)
+
+  @@unique([dashboardId, code])
+  @@index([dashboardId, isActive, sortOrder])
+  @@map("dashboard_widgets")
+}
+
+model UserDashboardPreference {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  dashboardId String   @map("dashboard_id") @db.Uuid
+  layout      Json     @db.JsonB
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, dashboardId])
+  @@index([dashboardId])
+  @@map("user_dashboard_preferences")
+}
+
+model KpiDefinition {
+  id             String      @id @default(uuid()) @db.Uuid
+  name           String      @db.VarChar(255)
+  code           String      @unique @db.VarChar(64)
+  description    String?     @db.Text
+  category       KpiCategory
+  scope          KpiScope
+  unit           KpiUnit
+  calculationKey String      @map("calculation_key") @db.VarChar(128)
+  targetValue    Decimal?    @map("target_value") @db.Decimal(20, 4)
+  isActive       Boolean     @default(true) @map("is_active")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  targets     KpiTarget[]
+  assignments KpiAssignment[]
+
+  @@index([scope, isActive])
+  @@index([category])
+  @@index([calculationKey])
+  @@map("kpi_definitions")
+}
+
+model KpiTarget {
+  id              String    @id @default(uuid()) @db.Uuid
+  kpiDefinitionId String    @map("kpi_definition_id") @db.Uuid
+  targetValue     Decimal   @map("target_value") @db.Decimal(20, 4)
+  effectiveFrom   DateTime  @map("effective_from") @db.Timestamptz(6)
+  effectiveUntil  DateTime? @map("effective_until") @db.Timestamptz(6)
+  createdById     String    @map("created_by_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  kpiDefinition KpiDefinition @relation(fields: [kpiDefinitionId], references: [id], onDelete: Restrict)
+  createdBy     User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([kpiDefinitionId, effectiveFrom])
+  @@index([effectiveUntil])
+  @@index([createdById])
+  @@map("kpi_targets")
+}
+
+model KpiAssignment {
+  id              String    @id @default(uuid()) @db.Uuid
+  kpiDefinitionId String    @map("kpi_definition_id") @db.Uuid
+  userId          String?   @map("user_id") @db.Uuid
+  departmentId    String?   @map("department_id") @db.Uuid
+  targetValue     Decimal?  @map("target_value") @db.Decimal(20, 4)
+  effectiveFrom   DateTime  @map("effective_from") @db.Timestamptz(6)
+  effectiveUntil  DateTime? @map("effective_until") @db.Timestamptz(6)
+  createdById     String    @map("created_by_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  kpiDefinition KpiDefinition @relation(fields: [kpiDefinitionId], references: [id], onDelete: Restrict)
+  user          User?         @relation("KpiAssignmentUser", fields: [userId], references: [id], onDelete: Restrict)
+  department    Department?   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  createdBy     User          @relation("KpiAssignmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([kpiDefinitionId, effectiveFrom])
+  @@index([userId, kpiDefinitionId, effectiveFrom])
+  @@index([departmentId, kpiDefinitionId, effectiveFrom])
+  @@index([effectiveUntil])
+  @@index([createdById])
+  @@map("kpi_assignments")
 }

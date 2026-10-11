@@ -108,6 +108,10 @@ outside this ERP; configuration flags do not configure those services.
 
 ## Gotchas
 
+- Reporting metadata and KPI targets are not KPI actuals. Derive authorized
+  aggregates from transactional sources; never persist dashboard counts/results
+  in JSON configuration, add progress/financial counters or treat scope as RBAC.
+
 - Meetings/notifications are database records only. Calendar aggregates existing
   meeting/task/action/leave/sprint dates; do not create calendar/chat/reminder
   engines or delivery workers without a separate request.

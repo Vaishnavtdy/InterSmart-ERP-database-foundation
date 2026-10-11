@@ -1034,3 +1034,42 @@
   leave/sprints, not another stored event model. Reminders derive existing dates.
   All 23 new FKs RESTRICT; no existing tables/data/history reset or dropped.
   No UI/API/services, notifications workers, chat, AWS, tenants or Step 19 work.
+
+## Step 19 — Reporting/dashboard/KPI definitions, not measurements
+
+- Nine generic tables, six enums, fourteen RESTRICT FKs. Report/Dashboard scopes
+  share ReportingScope; KpiScope retains its explicitly requested vocabulary
+  without PROJECT (PROJECT remains a KPI category). No per-department tables.
+- Transactional records authoritative → future authorized application queries →
+  calculated KPI actuals → reports/dashboard UI. No stored actuals, project/
+  financial counters, employee score, reporting database, warehouse or caches.
+- Exactly four JSONB fields for configuration/layout, required object payloads.
+  SQL object checks do not certify nested metadata or make arbitrary queries
+  safe; future typed validation/registered parameterized queries required.
+- Widget dataSource and KPI calculationKey are application-whitelisted strings,
+  not executable SQL or database functions/foreign keys. No registry introduced.
+- Report version unique/positive; saved names unique per employee/report using
+  normal case-sensitive comparison; widget codes per dashboard; one preference
+  per user/dashboard. Scope-specific default-selection UX deferred, no invented
+  global default rule or current-configuration pointer/automatic version engine.
+- KPI baseline/period/subject targets are goals, never calculated actuals.
+  DECIMAL(20,4) exact finite signed values; unit-specific bounds/currency/
+  denominator/rounding and target precedence require future calculation policy.
+- Assignments use exactly one employee OR department; actual author retained
+  separately. Half-open time periods require positive duration or open-ended
+  NULL expiry. Overlap/target resolution/historical department changes require
+  future business policy; no fabricated exclusion/automatic inheritance engine.
+- Reporting audit found existing leading/composite indexes sufficient for all
+  listed transactional dimensions except Project.startDate, now indexed. No
+  duplicate indexes, premature JSON indexes, materialized views or query cache.
+- Preserve financial opening-vs-ledger/reversal/allocation semantics, receipt-vs-
+  request status/currency ownership, fact grain and historical staffing/assignee
+  attribution in future queries. Existing assessment/budget/daily-report values
+  remain unchanged; do not add new calculated fields to business tables.
+- Canonical RBAC absent, so reuse/grants/permission seeds unavailable and explicitly
+  deferred; no new auth architecture. Scope/isSystem/isActive/JSON filters/KPI
+  assignments never grant data access. Authorized source restrictions required
+  before any aggregation, detail/export or confidential HR/finance response.
+- Existing seed unchanged; no unneeded system records or fake authors. CSV/
+  Excel/PDF generation, KPI alerts (reuse Notifications), report execution,
+  dashboards, APIs, workers, additional audits and Step 20 remain out of scope.

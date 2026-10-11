@@ -30,13 +30,15 @@ blocking cycles before committing, and specify allowed cross-project links.
 Treat related links as directed stored associations unless a future policy
 normalizes them; don't introduce recursive triggers or a scheduler implicitly.
 
-UI/UX/Development task links require same-project ownership and the matching workstream, but those
+UI/UX/Development/QA task links require same-project ownership and the matching workstream, but those
 cross-table classification rules are a future service contract, not an FK
 guarantee. Validate subsequent ownership/workstream edits as well as link creation.
 
 **Why:** The common task engine remains domain-neutral; domain links enforce valid
 entities and UI section/page, UX context/version or Development module/version
-containment without implementing lifecycle workflows.
+containment without implementing lifecycle workflows. QA links intentionally
+allow independently nullable version/case/execution contexts; existence checks
+alone do not prove supplied contexts agree on a case or cycle.
 A link validated once can become invalid when either endpoint is later moved.
 
 **How to apply:** Check existing domain associations before changing task project or
@@ -64,3 +66,14 @@ active-sprint policy or immutable membership history.
 and any department-version associations, and decide whether membership history
 is needed before changing completed-sprint policy. Do not silently complete
 tasks or rewrite their task-status/assignment history when a sprint closes.
+
+Bug-task links associate defect records with work; they do not synchronize
+the two lifecycles or imply the task's current assignee owns the Bug.
+
+**Why:** A defect can require multiple work tasks and a task can address several
+defects. Bug assignment/verification and task assignment/history serve different
+purposes; automatic propagation would lose that distinction.
+
+**How to apply:** Validate Project and authorized Development/bug-fix context,
+including later endpoint moves. Decide explicitly whether a task update should
+change a defect and write any chosen bug status/history changes atomically.

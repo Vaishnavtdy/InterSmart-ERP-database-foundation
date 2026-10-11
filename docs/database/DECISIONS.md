@@ -849,3 +849,48 @@
   DEVELOPMENT classification. No dev_tasks, dev_sprints, new team/storage engine,
   QA/bug module, notification, time tracking, AWS, CI/CD, frontend, API, tenant,
   calculated budget/progress or seed records.
+
+## Step 15 — QA & Bug Management
+
+- QA has independent Project-owned versions/cycles with positive unique
+  project/version, optional approval metadata paired actor/time, and no computed
+  progress. It reuses common Task/Sprint/Team/File/resource models.
+- Existing QA workstream, TESTING task type, QA team role and resource type are
+  sufficient. Priority reuses ProjectPriority for cases and bugs.
+- Test definitions and ordered steps are separate from repeated execution runs.
+  Globally unique case code survives soft deletion; execution case/version match
+  is enforced by a composite FK. NOT_RUN may lack executor/time/environment.
+  Definition snapshots and retention after edits remain a future service policy.
+- QaTaskLink contexts are ALL nullable. Independent FKs ensure referenced objects
+  exist even when owner context is NULL; QA/version/case/task alignment remains
+  service-validated including subsequent edits. A migration-owned expression
+  unique index covers every nullable context combination; empty text is a safe
+  normalization for UUID NULL without reserving any actual UUID.
+- DevelopmentEnvironment is reused directly in runs/builds/bugs. Its owning
+  project must match in future services; no new environment or Development copy.
+  Build metadata is manually recorded, nonunique and uses nullable string build
+  number; execution/bug buildVersion are snapshot labels, not build foreign keys.
+- Bug is a dedicated entity, Project required, QA cycle optional for production
+  defects outside formal QA. Optional cycle has same-project composite FK.
+  Severity and urgency are independent; global bug code survives soft deletion.
+- BugTaskLink allows many development work records per defect. BugAttachment
+  points to exact existing File revision in MinIO, not a dynamic current file.
+  QaExecutionBug allows many defects per run and many discovering runs per defect.
+  All three pairs are unique. Cross-domain project/authorization checks are
+  future services, not a new graph/lifecycle engine.
+- Current bug assignment and latest verification remain on Bug. Status history
+  is immutable via UPDATE/DELETE/TRUNCATE guards. NULL fromStatus is initial
+  event; same-status events are rejected. No assignment or formal verification
+  history table. Serialized current-state/history writes must be atomic, and
+  reopen behavior needs explicit latest-verification clearing/retention policy.
+- No state-machine CHECK or automatic status synchronization: fix/retest/verify/
+  close, reopen, alternative closure statuses and repeated regression are supported.
+  Attribution/case/bug soft deletion and all 36 new FK RESTRICT policies preserve
+  references but do not freeze mutable historical definitions or unused leaves.
+- Daily model QaDailyReport resolves the QaDailyStatus enum collision while
+  retaining qa_daily_status table. DATE key unique by cycle/day, nullable 0..100
+  snapshot only. Requested REGESSION typo corrected to canonical REGRESSION.
+- Task only adds inverse QaTaskLink/BugTaskLink relations; its scalars and generic
+  sprint FK/index are unchanged. Sprint itself is unchanged; QA can already use it.
+- No CI/CD, notifications, generic approvals, HR, time tracking, portal, AWS,
+  calculated balances/progress, tenant fields, frontend/API or seed records.

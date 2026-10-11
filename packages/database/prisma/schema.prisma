@@ -115,6 +115,18 @@ model User {
   createdRepositories         DevelopmentRepository[]
   performedDeployments        DevelopmentDeployment[]
   developmentDailyReports     DevelopmentDailyReport[]
+  createdQaVersions           ProjectQa[]                   @relation("QaCreator")
+  approvedQaVersions          ProjectQa[]                   @relation("QaApprover")
+  createdQaTestCases          QaTestCase[]
+  qaTestExecutions            QaTestExecution[]
+  createdQaBuilds             QaBuild[]
+  qaDailyReports              QaDailyReport[]
+  reportedBugs                Bug[]                         @relation("BugReporter")
+  assignedBugs                Bug[]                         @relation("BugAssignee")
+  verifiedBugs                Bug[]                         @relation("BugVerifier")
+  bugComments                 BugComment[]
+  bugStatusChanges            BugStatusHistory[]
+  createdBugAttachments       BugAttachment[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -517,6 +529,8 @@ model Project {
   uxSpecifications     ProjectUx[]
   sprints              Sprint[]
   developmentVersions  ProjectDevelopment[]
+  qaVersions           ProjectQa[]
+  bugs                 Bug[]
 
   @@index([customerId])
   @@index([proposalId])
@@ -746,25 +760,26 @@ enum ProjectResourceType {
 }
 
 model File {
-  id           String            @id @default(uuid()) @db.Uuid
-  projectId    String            @map("project_id") @db.Uuid
-  fileSeriesId String            @default(uuid()) @map("file_series_id") @db.Uuid
-  uploadedById String            @map("uploaded_by_id") @db.Uuid
-  fileName     String            @map("file_name") @db.VarChar(255)
-  originalName String            @map("original_name") @db.VarChar(255)
-  storageKey   String            @unique @map("storage_key") @db.VarChar(1024)
-  bucket       String            @db.VarChar(255)
-  mimeType     String            @map("mime_type") @db.VarChar(255)
-  sizeBytes    BigInt            @map("size_bytes") @db.BigInt
-  checksum     String?           @db.VarChar(255)
-  version      Int               @default(1)
-  isCurrent    Boolean           @default(true) @map("is_current")
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt    DateTime?         @map("deleted_at") @db.Timestamptz(6)
-  project      Project           @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  uploadedBy   User              @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
-  resources    ProjectResource[]
+  id             String            @id @default(uuid()) @db.Uuid
+  projectId      String            @map("project_id") @db.Uuid
+  fileSeriesId   String            @default(uuid()) @map("file_series_id") @db.Uuid
+  uploadedById   String            @map("uploaded_by_id") @db.Uuid
+  fileName       String            @map("file_name") @db.VarChar(255)
+  originalName   String            @map("original_name") @db.VarChar(255)
+  storageKey     String            @unique @map("storage_key") @db.VarChar(1024)
+  bucket         String            @db.VarChar(255)
+  mimeType       String            @map("mime_type") @db.VarChar(255)
+  sizeBytes      BigInt            @map("size_bytes") @db.BigInt
+  checksum       String?           @db.VarChar(255)
+  version        Int               @default(1)
+  isCurrent      Boolean           @default(true) @map("is_current")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  uploadedBy     User              @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  resources      ProjectResource[]
+  bugAttachments BugAttachment[]
 
   @@unique([projectId, fileSeriesId, version])
   // Target key for resource ownership validation.
@@ -1141,6 +1156,8 @@ model Task {
   uiLinks          UiTaskLink[]
   uxLinks          UxTaskLink[]
   developmentLinks DevelopmentTaskLink[]
+  qaLinks          QaTaskLink[]
+  bugLinks         BugTaskLink[]
 
   // Composite target key keeps children in their parent's project.
   @@unique([projectId, id])
@@ -1884,6 +1901,9 @@ model DevelopmentEnvironment {
   updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
   projectDevelopment   ProjectDevelopment         @relation(fields: [projectDevelopmentId], references: [id], onDelete: Restrict)
   deployments          DevelopmentDeployment[]
+  qaTestExecutions     QaTestExecution[]
+  qaBuilds             QaBuild[]
+  bugs                 Bug[]
 
   @@unique([projectDevelopmentId, id])
   @@index([projectDevelopmentId, isActive])
@@ -1937,4 +1957,393 @@ model DevelopmentDailyReport {
   @@index([statusDate])
   @@index([createdById])
   @@map("development_daily_status")
+}
+
+enum QaStatus {
+  DRAFT
+  PLANNING
+  IN_PROGRESS
+  IN_REVIEW
+  READY_FOR_RELEASE
+  RETESTING
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum QaTestType {
+  FUNCTIONAL
+  UI
+  API
+  INTEGRATION
+  REGRESSION
+  SMOKE
+  SANITY
+  PERFORMANCE
+  SECURITY
+  COMPATIBILITY
+  USER_ACCEPTANCE
+  OTHER
+}
+
+enum QaTestCaseStatus {
+  DRAFT
+  READY
+  IN_PROGRESS
+  PASSED
+  FAILED
+  BLOCKED
+  RETIRED
+}
+
+enum QaExecutionStatus {
+  NOT_RUN
+  PASSED
+  FAILED
+  BLOCKED
+  SKIPPED
+  IN_PROGRESS
+}
+
+enum BugSeverity {
+  BLOCKER
+  CRITICAL
+  MAJOR
+  MINOR
+  TRIVIAL
+}
+
+enum BugStatus {
+  OPEN
+  TRIAGED
+  ASSIGNED
+  IN_PROGRESS
+  FIXED
+  READY_FOR_RETEST
+  REOPENED
+  VERIFIED
+  CLOSED
+  WONT_FIX
+  DUPLICATE
+  CANNOT_REPRODUCE
+  BLOCKED
+}
+
+enum BugSource {
+  MANUAL_TESTING
+  REGRESSION
+  UAT
+  PRODUCTION
+  CUSTOMER_REPORTED
+  INTERNAL
+  AUTOMATED_TEST
+  OTHER
+}
+
+enum QaDailyStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  READY_FOR_RELEASE
+  COMPLETED
+  ON_HOLD
+}
+
+model ProjectQa {
+  id               String            @id @default(uuid()) @db.Uuid
+  projectId        String            @map("project_id") @db.Uuid
+  versionNumber    Int               @map("version_number")
+  title            String            @db.VarChar(255)
+  description      String?           @db.Text
+  status           QaStatus          @default(DRAFT)
+  testScope        String?           @map("test_scope") @db.Text
+  testStrategy     String?           @map("test_strategy") @db.Text
+  environmentNotes String?           @map("environment_notes") @db.Text
+  createdById      String            @map("created_by_id") @db.Uuid
+  approvedById     String?           @map("approved_by_id") @db.Uuid
+  approvedAt       DateTime?         @map("approved_at") @db.Timestamptz(6)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy        User              @relation("QaCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy       User?             @relation("QaApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  testCases        QaTestCase[]
+  testExecutions   QaTestExecution[]
+  bugs             Bug[]
+  taskLinks        QaTaskLink[]
+  dailyStatuses    QaDailyReport[]
+  builds           QaBuild[]
+
+  @@unique([projectId, versionNumber])
+  @@unique([projectId, id])
+  @@index([status])
+  @@index([createdById])
+  @@index([approvedById])
+  @@index([createdAt])
+  @@map("project_qa")
+}
+
+model QaTestCase {
+  id             String            @id @default(uuid()) @db.Uuid
+  projectQaId    String            @map("project_qa_id") @db.Uuid
+  testCaseCode   String            @unique @map("test_case_code") @db.VarChar(64)
+  title          String            @db.VarChar(255)
+  description    String?           @db.Text
+  module         String?           @db.VarChar(255)
+  preconditions  String?           @db.Text
+  expectedResult String?           @map("expected_result") @db.Text
+  testType       QaTestType        @default(FUNCTIONAL) @map("test_type")
+  priority       ProjectPriority   @default(MEDIUM)
+  status         QaTestCaseStatus  @default(DRAFT)
+  createdById    String            @map("created_by_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  projectQa      ProjectQa         @relation(fields: [projectQaId], references: [id], onDelete: Restrict)
+  createdBy      User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  steps          QaTestStep[]
+  executions     QaTestExecution[]
+  taskLinks      QaTaskLink[]
+
+  @@unique([projectQaId, id])
+  @@index([projectQaId, deletedAt])
+  @@index([status])
+  @@index([testType])
+  @@index([priority])
+  @@index([createdById])
+  @@map("qa_test_cases")
+}
+
+model QaTestStep {
+  id             String     @id @default(uuid()) @db.Uuid
+  testCaseId     String     @map("test_case_id") @db.Uuid
+  stepNumber     Int        @map("step_number")
+  action         String     @db.Text
+  testData       String?    @map("test_data") @db.Text
+  expectedResult String?    @map("expected_result") @db.Text
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  testCase       QaTestCase @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+
+  @@unique([testCaseId, stepNumber])
+  @@map("qa_test_steps")
+}
+
+model QaTestExecution {
+  id            String                  @id @default(uuid()) @db.Uuid
+  testCaseId    String                  @map("test_case_id") @db.Uuid
+  projectQaId   String                  @map("project_qa_id") @db.Uuid
+  executedById  String?                 @map("executed_by_id") @db.Uuid
+  environmentId String?                 @map("environment_id") @db.Uuid
+  buildVersion  String?                 @map("build_version") @db.VarChar(100)
+  status        QaExecutionStatus       @default(NOT_RUN)
+  startedAt     DateTime?               @map("started_at") @db.Timestamptz(6)
+  completedAt   DateTime?               @map("completed_at") @db.Timestamptz(6)
+  notes         String?                 @db.Text
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  testCase      QaTestCase              @relation(fields: [projectQaId, testCaseId], references: [projectQaId, id], onDelete: Restrict, onUpdate: NoAction)
+  projectQa     ProjectQa               @relation(fields: [projectQaId], references: [id], onDelete: Restrict)
+  executedBy    User?                   @relation(fields: [executedById], references: [id], onDelete: Restrict)
+  environment   DevelopmentEnvironment? @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  bugs          QaExecutionBug[]
+  taskLinks     QaTaskLink[]
+
+  @@index([testCaseId])
+  @@index([projectQaId])
+  @@index([executedById])
+  @@index([environmentId])
+  @@index([status])
+  @@index([startedAt])
+  @@map("qa_test_executions")
+}
+
+model QaBuild {
+  id            String                  @id @default(uuid()) @db.Uuid
+  projectQaId   String                  @map("project_qa_id") @db.Uuid
+  version       String                  @db.VarChar(100)
+  buildNumber   String?                 @map("build_number") @db.VarChar(100)
+  commitHash    String?                 @map("commit_hash") @db.VarChar(128)
+  releaseNotes  String?                 @map("release_notes") @db.Text
+  environmentId String?                 @map("environment_id") @db.Uuid
+  createdById   String                  @map("created_by_id") @db.Uuid
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  projectQa     ProjectQa               @relation(fields: [projectQaId], references: [id], onDelete: Restrict)
+  environment   DevelopmentEnvironment? @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  createdBy     User                    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([projectQaId, version, buildNumber])
+  @@index([version])
+  @@index([buildNumber])
+  @@index([environmentId])
+  @@index([createdById])
+  @@map("qa_builds")
+}
+
+model Bug {
+  id               String                  @id @default(uuid()) @db.Uuid
+  projectId        String                  @map("project_id") @db.Uuid
+  projectQaId      String?                 @map("project_qa_id") @db.Uuid
+  bugCode          String                  @unique @map("bug_code") @db.VarChar(64)
+  title            String                  @db.VarChar(255)
+  description      String                  @db.Text
+  stepsToReproduce String?                 @map("steps_to_reproduce") @db.Text
+  expectedResult   String?                 @map("expected_result") @db.Text
+  actualResult     String?                 @map("actual_result") @db.Text
+  severity         BugSeverity             @default(MAJOR)
+  priority         ProjectPriority         @default(MEDIUM)
+  status           BugStatus               @default(OPEN)
+  source           BugSource               @default(MANUAL_TESTING)
+  environmentId    String?                 @map("environment_id") @db.Uuid
+  buildVersion     String?                 @map("build_version") @db.VarChar(100)
+  reportedById     String                  @map("reported_by_id") @db.Uuid
+  assignedToId     String?                 @map("assigned_to_id") @db.Uuid
+  verifiedById     String?                 @map("verified_by_id") @db.Uuid
+  resolvedAt       DateTime?               @map("resolved_at") @db.Timestamptz(6)
+  verifiedAt       DateTime?               @map("verified_at") @db.Timestamptz(6)
+  closedAt         DateTime?               @map("closed_at") @db.Timestamptz(6)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?               @map("deleted_at") @db.Timestamptz(6)
+  project          Project                 @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  projectQa        ProjectQa?              @relation(fields: [projectId, projectQaId], references: [projectId, id], onDelete: Restrict, onUpdate: NoAction)
+  environment      DevelopmentEnvironment? @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  reportedBy       User                    @relation("BugReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+  assignedTo       User?                   @relation("BugAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  verifiedBy       User?                   @relation("BugVerifier", fields: [verifiedById], references: [id], onDelete: Restrict)
+  comments         BugComment[]
+  statusHistory    BugStatusHistory[]
+  taskLinks        BugTaskLink[]
+  attachments      BugAttachment[]
+  executionLinks   QaExecutionBug[]
+
+  @@index([projectId, deletedAt])
+  @@index([projectQaId])
+  @@index([status, deletedAt])
+  @@index([severity])
+  @@index([priority])
+  @@index([assignedToId])
+  @@index([reportedById])
+  @@index([verifiedById])
+  @@index([environmentId])
+  @@index([createdAt])
+  @@map("bugs")
+}
+
+model BugComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  bugId     String   @map("bug_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  comment   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bug       Bug      @relation(fields: [bugId], references: [id], onDelete: Restrict)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([bugId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("bug_comments")
+}
+
+model BugStatusHistory {
+  id          String     @id @default(uuid()) @db.Uuid
+  bugId       String     @map("bug_id") @db.Uuid
+  fromStatus  BugStatus? @map("from_status")
+  toStatus    BugStatus  @map("to_status")
+  changedById String     @map("changed_by_id") @db.Uuid
+  reason      String?    @db.Text
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  bug         Bug        @relation(fields: [bugId], references: [id], onDelete: Restrict)
+  changedBy   User       @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([bugId, createdAt])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("bug_status_history")
+}
+
+model BugTaskLink {
+  id        String   @id @default(uuid()) @db.Uuid
+  bugId     String   @map("bug_id") @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  bug       Bug      @relation(fields: [bugId], references: [id], onDelete: Restrict)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@unique([bugId, taskId])
+  @@index([taskId])
+  @@map("bug_task_links")
+}
+
+model BugAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  bugId       String   @map("bug_id") @db.Uuid
+  fileId      String   @map("file_id") @db.Uuid
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  bug         Bug      @relation(fields: [bugId], references: [id], onDelete: Restrict)
+  file        File     @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([bugId, fileId])
+  @@index([fileId])
+  @@index([createdById])
+  @@map("bug_attachments")
+}
+
+model QaExecutionBug {
+  id              String          @id @default(uuid()) @db.Uuid
+  testExecutionId String          @map("test_execution_id") @db.Uuid
+  bugId           String          @map("bug_id") @db.Uuid
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  testExecution   QaTestExecution @relation(fields: [testExecutionId], references: [id], onDelete: Restrict)
+  bug             Bug             @relation(fields: [bugId], references: [id], onDelete: Restrict)
+
+  @@unique([testExecutionId, bugId])
+  @@index([bugId])
+  @@map("qa_execution_bugs")
+}
+
+model QaTaskLink {
+  id              String           @id @default(uuid()) @db.Uuid
+  taskId          String           @map("task_id") @db.Uuid
+  projectQaId     String?          @map("project_qa_id") @db.Uuid
+  testCaseId      String?          @map("test_case_id") @db.Uuid
+  testExecutionId String?          @map("test_execution_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  task            Task             @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  projectQa       ProjectQa?       @relation(fields: [projectQaId], references: [id], onDelete: Restrict)
+  testCase        QaTestCase?      @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+  testExecution   QaTestExecution? @relation(fields: [testExecutionId], references: [id], onDelete: Restrict)
+
+  // SQL expression index deduplicates all nullable context combinations.
+  @@index([taskId])
+  @@index([projectQaId])
+  @@index([testCaseId])
+  @@index([testExecutionId])
+  @@map("qa_task_links")
+}
+
+model QaDailyReport {
+  id                   String        @id @default(uuid()) @db.Uuid
+  projectQaId          String        @map("project_qa_id") @db.Uuid
+  statusDate           DateTime      @map("status_date") @db.Date
+  status               QaDailyStatus @default(NOT_STARTED)
+  summary              String        @db.Text
+  completedWork        String?       @map("completed_work") @db.Text
+  plannedWork          String?       @map("planned_work") @db.Text
+  blockers             String?       @db.Text
+  risks                String?       @db.Text
+  completionPercentage Int?          @map("completion_percentage")
+  createdById          String        @map("created_by_id") @db.Uuid
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  projectQa            ProjectQa     @relation(fields: [projectQaId], references: [id], onDelete: Restrict)
+  createdBy            User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([projectQaId, statusDate])
+  @@index([statusDate])
+  @@index([createdById])
+  @@map("qa_daily_status")
 }

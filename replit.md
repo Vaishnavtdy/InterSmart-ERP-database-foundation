@@ -86,6 +86,12 @@ Sprints are reusable project/workstream records, not Development-only sprints;
 tasks may have no sprint. Repository/environment/deployment records store
 metadata only, never credentials, and do not run integrations or CI/CD.
 
+QA uses common tasks/generic sprints, the existing QA team/resource classifications
+and Development environments. Bugs are defect records separate from tasks;
+status history is append-only, and current-state/history writes must be atomic.
+Test cases are reusable definitions; executions are individual runs. QA builds
+are manually recorded metadata, not CI/CD. Daily completion is a snapshot.
+
 ## User preferences
 
 - Implement only the explicitly requested database step; do not add roles or other ERP modules automatically.

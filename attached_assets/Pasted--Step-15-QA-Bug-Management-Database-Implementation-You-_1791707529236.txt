@@ -1,0 +1,1685 @@
+# Step 15 — QA & Bug Management Database Implementation
+
+You are continuing the incremental database implementation for the InterSmart internal ERP.
+
+## Current architecture
+
+The application is for **one organization: InterSmart**.
+
+Important architecture rules:
+
+- Do NOT create an `organizations` table.
+- Do NOT add `organization_id` or `tenant_id`.
+- `users` are internal InterSmart employees.
+- `customers` are external clients and do not authenticate.
+- PostgreSQL + Prisma.
+- UUID primary keys.
+- PostgreSQL `timestamptz` through Prisma `DateTime`.
+- `Decimal` for monetary values.
+- Existing Project, Task, Team, File, UI, UX, Development, Budget, and Payment models must be reused.
+- No AWS services.
+- Do NOT reset the database.
+- Do NOT delete or rewrite old migrations.
+- Create a new migration only for this step.
+
+---
+
+# Previously implemented
+
+The database currently contains:
+
+1. Users / Departments / Employee Profiles
+2. Roles / Permissions
+3. Customers / Customer Contacts
+4. Leads / Lead Activities
+5. Proposals / Versions / Items
+6. Projects
+7. Scope / Business Analysis
+8. Project Files / Resources
+9. Project Budget / Budget Transactions
+10. Payments / Payment Requests
+11. Common Task Engine
+12. UI Design & UI Resource Management
+13. UX Design & UX Resource Management
+14. Development Management
+
+Step 14 also introduced the reusable:
+
+```text
+sprints
+```
+
+model and optional:
+
+```text
+tasks.sprint_id
+```
+
+relationship.
+
+You MUST inspect the actual current Prisma schema before implementing Step 15.
+
+---
+
+# Objective
+
+Implement **Step 15 — QA & Bug Management**.
+
+The QA module must support:
+
+- QA work for projects
+- QA versions/cycles
+- Test cases
+- Test executions
+- Bugs/defects
+- Bug severity
+- Bug priority
+- Bug lifecycle/status
+- Bug assignment
+- Developer/QA workflow
+- Bug comments
+- Bug status history
+- Bug verification/retesting
+- Bug attachments through existing file storage
+- QA daily status
+- QA tasks using the existing task engine
+- QA team through existing `project_team`
+- QA relationship with Development
+- Regression testing
+- Release/build information
+
+The architecture must support future reporting and dashboards.
+
+---
+
+# CRITICAL ARCHITECTURE DECISIONS
+
+## 1. Do NOT create a separate QA task engine
+
+Never create:
+
+```text
+qa_tasks
+testing_tasks
+bug_tasks
+```
+
+Reuse:
+
+```text
+tasks
+task_assignments
+task_dependencies
+task_comments
+task_status_history
+```
+
+QA tasks use:
+
+```text
+tasks.workstream = QA
+```
+
+Use existing task types where possible.
+
+If an existing `TaskType` does not contain a suitable testing value, inspect the current enum and add only what is necessary.
+
+---
+
+# 2. Bugs are NOT generic tasks
+
+A bug is a domain record with its own lifecycle.
+
+Do NOT model bugs only as:
+
+```text
+tasks
+```
+
+Create a dedicated:
+
+```text
+bugs
+```
+
+model.
+
+A bug may optionally have a related generic task for actual work.
+
+Example:
+
+```text
+Bug
+ ↓
+Task
+ ↓
+Developer
+```
+
+This keeps defect reporting separate from executable work.
+
+---
+
+# 3. QA team
+
+Reuse:
+
+```text
+project_team
+```
+
+with:
+
+```text
+QA
+```
+
+Do NOT create:
+
+```text
+qa_team_members
+```
+
+---
+
+# 4. Files
+
+Reuse:
+
+```text
+files
+project_resources
+```
+
+Do NOT create:
+
+```text
+bug_files
+qa_files
+```
+
+unless a many-to-many relationship specifically requires a linking table.
+
+---
+
+# 5. Sprint system
+
+Reuse the generic:
+
+```text
+sprints
+```
+
+introduced in Step 14.
+
+QA can use:
+
+```text
+workstream = QA
+```
+
+Do NOT create:
+
+```text
+qa_sprints
+```
+
+---
+
+# 1. Create `project_qa`
+
+Create the main QA workstream model.
+
+Suggested fields:
+
+```text id="q3h2z7"
+id
+project_id
+version_number
+title
+description
+status
+test_scope
+test_strategy
+environment_notes
+created_by_id
+approved_by_id
+approved_at
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="kw8k6h"
+project -> Project
+created_by -> User
+approved_by -> User
+test_cases
+test_executions
+bugs
+daily_statuses
+qa_task_links
+```
+
+Constraints:
+
+```text id="v9f8bw"
+unique(project_id, version_number)
+```
+
+Indexes:
+
+```text id="t0yrby"
+project_id
+status
+created_by_id
+```
+
+Do not store calculated QA progress as source of truth.
+
+---
+
+# 2. QA status
+
+Create:
+
+```text id="4j4x8q"
+QaStatus
+```
+
+Values:
+
+```text id="vqv2xg"
+DRAFT
+PLANNING
+IN_PROGRESS
+IN_REVIEW
+READY_FOR_RELEASE
+RETESTING
+COMPLETED
+ON_HOLD
+CANCELLED
+```
+
+---
+
+# 3. QA test cases
+
+Create:
+
+```text id="b8k8qj"
+qa_test_cases
+```
+
+Fields:
+
+```text id="5crjqt"
+id
+project_qa_id
+test_case_code
+title
+description
+module
+preconditions
+expected_result
+test_type
+priority
+status
+created_by_id
+created_at
+updated_at
+deleted_at
+```
+
+Relationships:
+
+```text id="9v2b1r"
+project_qa -> ProjectQa
+created_by -> User
+steps
+executions
+```
+
+### Test case code
+
+`test_case_code` should be unique.
+
+Example:
+
+```text id="1d1b38"
+TC-PROJ-001
+TC-PROJ-002
+```
+
+The exact generation mechanism can be handled by the application layer.
+
+---
+
+# 4. Test case types
+
+Create:
+
+```text id="x85c0g"
+QaTestType
+```
+
+Values:
+
+```text id="o5d0b1"
+FUNCTIONAL
+UI
+API
+INTEGRATION
+REGRESSION
+SMOKE
+SANITY
+PERFORMANCE
+SECURITY
+COMPATIBILITY
+USER_ACCEPTANCE
+OTHER
+```
+
+Do not overbuild automated testing infrastructure here.
+
+This database models QA management.
+
+---
+
+# 5. Test case statuses
+
+Create:
+
+```text id="0h6m9m"
+QaTestCaseStatus
+```
+
+Values:
+
+```text id="6s7n0w"
+DRAFT
+READY
+IN_PROGRESS
+PASSED
+FAILED
+BLOCKED
+RETIRED
+```
+
+---
+
+# 6. Test case priority
+
+Reuse the existing generic priority enum if compatible:
+
+```text
+LOW
+MEDIUM
+HIGH
+URGENT
+```
+
+Do not create another priority enum unnecessarily.
+
+---
+
+# 7. Create `qa_test_steps`
+
+Test cases may contain multiple steps.
+
+Fields:
+
+```text id="u0s5n2"
+id
+test_case_id
+step_number
+action
+test_data
+expected_result
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="x1n1pk"
+test_case -> QaTestCase
+```
+
+Add:
+
+```text id="w7iv8m"
+unique(test_case_id, step_number)
+```
+
+This allows structured manual testing.
+
+---
+
+# 8. Create `qa_test_executions`
+
+A test case is reusable; each execution represents an actual test run.
+
+Fields:
+
+```text id="9h5vcn"
+id
+test_case_id
+project_qa_id
+executed_by_id
+environment_id
+build_version
+status
+started_at
+completed_at
+notes
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="2ut7pc"
+test_case -> QaTestCase
+project_qa -> ProjectQa
+executed_by -> User
+environment -> DevelopmentEnvironment
+```
+
+`environment_id` should reference the existing:
+
+```text
+development_environments
+```
+
+Do NOT create a separate QA environment table.
+
+---
+
+# 9. Test execution status
+
+Create:
+
+```text id="n8b8z7"
+QaExecutionStatus
+```
+
+Values:
+
+```text id="2qz0z4"
+NOT_RUN
+PASSED
+FAILED
+BLOCKED
+SKIPPED
+IN_PROGRESS
+```
+
+---
+
+# 10. Bug / defect model
+
+Create:
+
+```text id="2ukqak"
+bugs
+```
+
+Suggested fields:
+
+```text id="t6n0tx"
+id
+project_id
+project_qa_id
+bug_code
+title
+description
+steps_to_reproduce
+expected_result
+actual_result
+severity
+priority
+status
+source
+environment_id
+build_version
+reported_by_id
+assigned_to_id
+verified_by_id
+resolved_at
+verified_at
+closed_at
+created_at
+updated_at
+deleted_at
+```
+
+Relationships:
+
+```text id="l6u5r9"
+project -> Project
+project_qa -> ProjectQa
+environment -> DevelopmentEnvironment
+reported_by -> User
+assigned_to -> User
+verified_by -> User
+comments
+status_history
+links
+attachments
+```
+
+### Important
+
+Do not store duplicate customer/project information in bugs.
+
+The project relationship provides the project context.
+
+---
+
+# 11. Bug code
+
+`bug_code` must be unique.
+
+Example:
+
+```text id="8h3w5u"
+BUG-PROJ-001
+BUG-PROJ-002
+```
+
+Generation can be handled at application level.
+
+Database uniqueness must still be enforced.
+
+---
+
+# 12. Bug severity
+
+Create:
+
+```text id="g9yq86"
+BugSeverity
+```
+
+Values:
+
+```text id="b7f4hs"
+BLOCKER
+CRITICAL
+MAJOR
+MINOR
+TRIVIAL
+```
+
+Severity describes technical/business impact.
+
+---
+
+# 13. Bug priority
+
+Reuse the existing generic priority enum if compatible:
+
+```text
+LOW
+MEDIUM
+HIGH
+URGENT
+```
+
+Priority represents how urgently the team should work on the bug.
+
+Do not combine severity and priority into one field.
+
+---
+
+# 14. Bug status
+
+Create:
+
+```text id="5dzjyn"
+BugStatus
+```
+
+Values:
+
+```text id="iw7khs"
+OPEN
+TRIAGED
+ASSIGNED
+IN_PROGRESS
+FIXED
+READY_FOR_RETEST
+REOPENED
+VERIFIED
+CLOSED
+WONT_FIX
+DUPLICATE
+CANNOT_REPRODUCE
+BLOCKED
+```
+
+Important lifecycle:
+
+```text id="q1k4p6"
+OPEN
+ ↓
+TRIAGED
+ ↓
+ASSIGNED
+ ↓
+IN_PROGRESS
+ ↓
+FIXED
+ ↓
+READY_FOR_RETEST
+ ↓
+VERIFIED
+ ↓
+CLOSED
+```
+
+Reopen path:
+
+```text id="g6a9g1"
+VERIFIED
+   ↓
+REOPENED
+   ↓
+IN_PROGRESS
+```
+
+Do not enforce the entire lifecycle using database CHECK constraints.
+
+The application/service layer will control valid transitions.
+
+---
+
+# 15. Bug source
+
+Create:
+
+```text id="r9j8tt"
+BugSource
+```
+
+Values:
+
+```text
+MANUAL_TESTING
+REGRESSION
+UAT
+PRODUCTION
+CUSTOMER_REPORTED
+INTERNAL
+AUTOMATED_TEST
+OTHER
+```
+
+---
+
+# 16. Bug comments
+
+Create:
+
+```text id="c3r1p4"
+bug_comments
+```
+
+Fields:
+
+```text id="z3j0q6"
+id
+bug_id
+user_id
+comment
+created_at
+updated_at
+```
+
+Relationships:
+
+```text id="9d4yqj"
+bug -> Bug
+user -> User
+```
+
+Indexes:
+
+```text id="2l3z3u"
+bug_id
+user_id
+created_at
+```
+
+---
+
+# 17. Bug status history
+
+Create:
+
+```text id="y0w0s7"
+bug_status_history
+```
+
+Fields:
+
+```text id="m4a1yt"
+id
+bug_id
+from_status
+to_status
+changed_by_id
+reason
+created_at
+```
+
+Relationships:
+
+```text id="m6j9tc"
+bug -> Bug
+changed_by -> User
+```
+
+This is important for auditability and reporting.
+
+Do not rely only on the current `bugs.status`.
+
+---
+
+# 18. Bug task links
+
+A bug may require developer work.
+
+Create:
+
+```text id="8ap8x2"
+bug_task_links
+```
+
+Fields:
+
+```text id="b4m4a2"
+id
+bug_id
+task_id
+created_at
+```
+
+Relationships:
+
+```text id="7d8c4h"
+bug -> Bug
+task -> Task
+```
+
+Indexes:
+
+```text id="y4x9ep"
+bug_id
+task_id
+```
+
+This allows:
+
+```text
+Bug
+ ↓
+Development Task
+ ↓
+Developer
+```
+
+The bug remains the defect record.
+
+The task remains the work record.
+
+Do NOT add `task_id` directly to `bugs` if multiple tasks may eventually be associated with one bug.
+
+---
+
+# 19. Bug attachments
+
+Reuse the existing `files` system.
+
+Create a lightweight linking model:
+
+```text id="pxqk96"
+bug_attachments
+```
+
+Fields:
+
+```text id="zyfx3c"
+id
+bug_id
+file_id
+created_by_id
+created_at
+```
+
+Relationships:
+
+```text id="2e6z3y"
+bug -> Bug
+file -> File
+created_by -> User
+```
+
+Add a unique constraint:
+
+```text id="w5m9hv"
+unique(bug_id, file_id)
+```
+
+Actual files continue to live in MinIO.
+
+Do not store binary data in PostgreSQL.
+
+---
+
+# 20. Test execution → bug relationship
+
+A failed test execution may discover one or more bugs.
+
+Create:
+
+```text id="p7w1n8"
+qa_execution_bugs
+```
+
+Fields:
+
+```text id="p7i5m2"
+id
+test_execution_id
+bug_id
+created_at
+```
+
+Relationships:
+
+```text id="84k9b3"
+test_execution -> QaTestExecution
+bug -> Bug
+```
+
+Add:
+
+```text id="6h7b8m"
+unique(test_execution_id, bug_id)
+```
+
+This gives:
+
+```text
+Test Execution
+      ↓
+    FAIL
+      ↓
+     Bug
+```
+
+Do not put a single `bug_id` directly on the test execution.
+
+---
+
+# 21. QA task links
+
+Create:
+
+```text id="s7k2g5"
+qa_task_links
+```
+
+Fields:
+
+```text id="k6v9n4"
+id
+task_id
+project_qa_id
+test_case_id
+test_execution_id
+created_at
+```
+
+Relationships:
+
+```text id="n5v7w8"
+task -> Task
+project_qa -> ProjectQa
+test_case -> QaTestCase
+test_execution -> QaTestExecution
+```
+
+Context fields should be nullable.
+
+A task may be:
+
+- QA planning
+- test execution
+- regression testing
+- test documentation
+- review
+- UAT support
+
+Do NOT create `qa_tasks`.
+
+---
+
+# 22. QA daily status
+
+Create:
+
+```text id="9w0s4c"
+qa_daily_status
+```
+
+Fields:
+
+```text id="z0z6a4"
+id
+project_qa_id
+status_date
+status
+summary
+completed_work
+planned_work
+blockers
+risks
+completion_percentage
+created_by_id
+created_at
+updated_at
+```
+
+Add:
+
+```text id="8x4j9v"
+unique(project_qa_id, status_date)
+```
+
+### Daily status
+
+Create:
+
+```text id="2k1g4n"
+QaDailyStatus
+```
+
+Values:
+
+```text
+NOT_STARTED
+IN_PROGRESS
+BLOCKED
+READY_FOR_RELEASE
+COMPLETED
+ON_HOLD
+```
+
+`completion_percentage` is only a reporting snapshot.
+
+It is not the source of truth.
+
+---
+
+# 23. QA release/build information
+
+QA needs to know what version/build was tested.
+
+Do NOT create a huge release-management system yet.
+
+Create:
+
+```text id="q0v3x9"
+qa_builds
+```
+
+Fields:
+
+```text id="2h8v3s"
+id
+project_qa_id
+version
+build_number
+commit_hash
+release_notes
+environment_id
+created_by_id
+created_at
+```
+
+Relationships:
+
+```text id="y6t2z4"
+project_qa -> ProjectQa
+environment -> DevelopmentEnvironment
+created_by -> User
+```
+
+Add an index:
+
+```text id="e9k3u1"
+project_qa_id
+version
+build_number
+```
+
+This allows QA to record:
+
+```text
+Version: 2.4.0
+Build: 128
+Commit: abc123
+Environment: Staging
+```
+
+Do not implement automatic CI/CD integration.
+
+---
+
+# 24. Regression testing
+
+Regression testing should use the existing:
+
+```text QaTestType.REGESSION
+```
+
+and:
+
+```text qa_test_executions
+```
+
+Do not create:
+
+```text
+regression_tests
+```
+
+The same test case can be executed repeatedly across builds.
+
+This is why:
+
+```text
+QaTestCase
+```
+
+and:
+
+```text
+QaTestExecution
+```
+
+must remain separate.
+
+---
+
+# 25. QA team
+
+Reuse:
+
+```text
+project_team
+```
+
+with:
+
+```text
+QA
+```
+
+Do NOT create another team table.
+
+---
+
+# 26. QA resources/files
+
+Reuse:
+
+```text
+files
+project_resources
+```
+
+If `project_resources.resource_type` does not contain:
+
+```text
+QA
+```
+
+add it.
+
+Possible resources:
+
+- Test plan
+- Test cases
+- Test reports
+- Regression report
+- UAT documentation
+- QA checklist
+- Release test report
+
+---
+
+# 27. Development relationship
+
+QA must reference the Development module without duplicating development information.
+
+Possible relationship:
+
+```text
+Project
+ ├── Development
+ │     └── Build / Deployment
+ │
+ └── QA
+       ├── Test Case
+       ├── Test Execution
+       └── Bug
+```
+
+Bugs may reference:
+
+```text
+environment
+build_version
+```
+
+and may link to development tasks through:
+
+```text
+bug_task_links
+```
+
+Do not create duplicate development modules inside QA.
+
+---
+
+# 28. Bug verification workflow
+
+The expected application workflow is:
+
+```text
+QA creates Bug
+        ↓
+TRIAGED
+        ↓
+Developer assigned
+        ↓
+IN_PROGRESS
+        ↓
+FIXED
+        ↓
+READY_FOR_RETEST
+        ↓
+QA verifies
+        ↓
+VERIFIED
+        ↓
+CLOSED
+```
+
+If verification fails:
+
+```text
+VERIFIED
+   ↓
+REOPENED
+   ↓
+IN_PROGRESS
+```
+
+The database should support this lifecycle but should not hard-code every transition.
+
+---
+
+# 29. Bug assignment
+
+Use:
+
+```text
+assigned_to_id
+```
+
+on `bugs` for the current responsible person.
+
+Use:
+
+```text
+bug_status_history
+```
+
+for lifecycle history.
+
+If future requirements need assignment history, a dedicated assignment-history model can be added later.
+
+Do not overbuild this step.
+
+---
+
+# 30. Bug verification
+
+Use:
+
+```text
+verified_by_id
+verified_at
+```
+
+for the latest verification.
+
+Historical status changes remain in:
+
+```text
+bug_status_history
+```
+
+Do not create:
+
+```text
+bug_verifications
+```
+
+unless the existing project requirements explicitly require multiple formal verification records.
+
+---
+
+# 31. Indexes
+
+At minimum:
+
+### project_qa
+
+```text id="f8y9j2"
+project_id
+status
+created_by_id
+```
+
+### qa_test_cases
+
+```text id="m5t4cy"
+project_qa_id
+status
+test_type
+priority
+```
+
+### qa_test_steps
+
+```text id="9j9e3d"
+test_case_id
+```
+
+### qa_test_executions
+
+```text id="x8d7p2"
+test_case_id
+project_qa_id
+executed_by_id
+environment_id
+status
+```
+
+### bugs
+
+```text id="0k4j6y"
+project_id
+project_qa_id
+status
+severity
+priority
+assigned_to_id
+reported_by_id
+environment_id
+created_at
+```
+
+### bug_comments
+
+```text id="4r2g6b"
+bug_id
+user_id
+created_at
+```
+
+### bug_status_history
+
+```text id="e5m3p1"
+bug_id
+changed_by_id
+created_at
+```
+
+### bug_task_links
+
+```text id="2r9n7d"
+bug_id
+task_id
+```
+
+### bug_attachments
+
+```text id="5n7c8k"
+bug_id
+file_id
+```
+
+### qa_execution_bugs
+
+```text id="z6h4x2"
+test_execution_id
+bug_id
+```
+
+### qa_task_links
+
+```text id="a4c7q1"
+task_id
+project_qa_id
+test_case_id
+test_execution_id
+```
+
+### qa_daily_status
+
+```text id="x2j8n5"
+project_qa_id
+status_date
+```
+
+### qa_builds
+
+```text id="u8c1m4"
+project_qa_id
+version
+build_number
+environment_id
+```
+
+Follow existing naming/index conventions where different.
+
+---
+
+# 32. Referential integrity
+
+Follow the existing Prisma relationship and deletion strategy.
+
+Important relationships:
+
+```text
+Project
+  ↓
+ProjectQa
+
+ProjectQa
+  ↓
+TestCase
+  ↓
+TestExecution
+
+ProjectQa
+  ↓
+Bug
+
+Bug
+  ↓
+BugComment
+BugStatusHistory
+BugTaskLink
+BugAttachment
+
+TestExecution
+  ↓
+QaExecutionBug
+  ↓
+Bug
+```
+
+Historical records should remain auditable.
+
+Do not allow user deletion to erase historical ownership information.
+
+Use the existing soft-delete conventions.
+
+---
+
+# 33. Prisma implementation process
+
+Before editing:
+
+1. Inspect the current schema.
+2. Inspect existing:
+   - `Project`
+   - `User`
+   - `Task`
+   - `ProjectTeam`
+   - `Sprint`
+   - `DevelopmentEnvironment`
+   - `File`
+   - `ProjectResource`
+3. Reuse existing enums.
+4. Check whether `QA` already exists in workstream/team/resource enums.
+5. Add only missing enum values.
+6. Avoid duplicate priority/status concepts.
+7. Ensure every Prisma relation has both sides.
+8. Follow existing naming conventions.
+9. Do not modify unrelated modules.
+
+---
+
+# 34. Migration
+
+Create exactly one migration.
+
+Example:
+
+```bash id="d8h8q3"
+npx prisma migrate dev --name add_qa_bug_management
+```
+
+Do NOT:
+
+```bash id="w3g1c8"
+npx prisma migrate reset
+```
+
+Do NOT delete or modify old migrations.
+
+---
+
+# 35. Validation
+
+Run:
+
+```bash id="8n6x4v"
+npx prisma validate
+```
+
+Then:
+
+```bash id="3j9m2r"
+npx prisma generate
+```
+
+Run the existing:
+
+- TypeScript checks
+- lint
+- tests
+- build
+
+where applicable.
+
+Verify:
+
+- Migration succeeds.
+- Prisma schema validates.
+- Prisma Client generates.
+- Existing models compile.
+- Existing migrations remain untouched.
+- No unrelated schema changes were introduced.
+
+---
+
+# 36. Documentation
+
+Update the existing database/architecture documentation.
+
+Document:
+
+```text id="6k2s9c"
+Step 15 — QA & Bug Management
+```
+
+Include:
+
+- `project_qa`
+- `qa_test_cases`
+- `qa_test_steps`
+- `qa_test_executions`
+- `qa_builds`
+- `bugs`
+- `bug_comments`
+- `bug_status_history`
+- `bug_task_links`
+- `bug_attachments`
+- `qa_execution_bugs`
+- `qa_task_links`
+- `qa_daily_status`
+
+Document these architecture decisions:
+
+```text id="0y8b6w"
+QA uses the common task engine.
+QA uses the generic sprint system.
+QA uses project_team.
+QA uses existing development environments.
+QA uses existing files/project_resources.
+Bugs are separate domain entities from tasks.
+Bugs can link to multiple development tasks.
+Test cases are reusable definitions.
+Test executions are actual test runs.
+Bug status history is immutable audit history.
+Daily QA completion is a reporting snapshot.
+No CI/CD integration is implemented in this step.
+```
+
+---
+
+# 37. Final verification checklist
+
+Before stopping, verify:
+
+## QA core
+
+- [ ] `project_qa` exists.
+- [ ] QA versions are supported.
+- [ ] Project/version uniqueness exists.
+- [ ] QA lifecycle statuses exist.
+
+## Test cases
+
+- [ ] Test cases exist.
+- [ ] Test case code is unique.
+- [ ] Test types exist.
+- [ ] Test case statuses exist.
+- [ ] Test steps exist.
+- [ ] Step numbering is unique per test case.
+
+## Test executions
+
+- [ ] Test executions exist.
+- [ ] Test cases can be executed multiple times.
+- [ ] Environment is referenced from Development Environment.
+- [ ] Build/version information can be stored.
+- [ ] Execution status exists.
+
+## Bugs
+
+- [ ] Dedicated `bugs` model exists.
+- [ ] Bug code is unique.
+- [ ] Severity exists.
+- [ ] Priority exists.
+- [ ] Bug status exists.
+- [ ] Bug source exists.
+- [ ] Bug assignment exists.
+- [ ] Verification fields exist.
+- [ ] Bug comments exist.
+- [ ] Bug status history exists.
+
+## Bug relationships
+
+- [ ] Bugs can link to multiple tasks.
+- [ ] Bugs can have attachments.
+- [ ] Failed test executions can link to bugs.
+- [ ] Existing file storage is reused.
+
+## Team
+
+- [ ] Existing `project_team` is reused.
+- [ ] QA role is supported.
+- [ ] No `qa_team_members` table exists.
+
+## Tasks
+
+- [ ] Existing `tasks` are reused.
+- [ ] `qa_task_links` exists.
+- [ ] No `qa_tasks` table exists.
+- [ ] Existing task dependencies are reused.
+
+## Sprints
+
+- [ ] Existing generic `sprints` model is reused.
+- [ ] QA can use `workstream = QA`.
+- [ ] No `qa_sprints` table exists.
+
+## Reporting
+
+- [ ] QA daily status exists.
+- [ ] One daily status per QA version/date.
+- [ ] Completion percentage is a reporting snapshot.
+
+## Resources
+
+- [ ] Existing `files` are reused.
+- [ ] Existing `project_resources` are reused.
+- [ ] QA resource type exists.
+
+## Architecture
+
+- [ ] No AWS services.
+- [ ] No organizations table.
+- [ ] No organization_id.
+- [ ] No tenant_id.
+- [ ] No duplicate task engine.
+- [ ] No duplicate team engine.
+- [ ] No CI/CD automation.
+- [ ] No secrets stored in PostgreSQL.
+- [ ] No calculated project progress/budget fields added.
+- [ ] No duplicate development environment model created.
+
+---
+
+# STOP CONDITION
+
+After completing Step 15:
+
+1. Show me the files/models changed.
+2. Show me the migration name.
+3. Show me all QA-related Prisma models/enums added or modified.
+4. Show me all Bug-related Prisma models/enums added or modified.
+5. Show the changes made to the existing `Task`/`Sprint` relationships, if any.
+6. Show validation results.
+7. Mention any existing schema conflicts that had to be resolved.
+8. Do NOT start Step 16.
+9. Do NOT implement notifications.
+10. Do NOT implement generic approvals.
+11. Do NOT implement HR.
+12. Do NOT implement time tracking.
+13. Do NOT implement CI/CD.
+14. Do NOT implement customer portal functionality.
+
+**STOP after Step 15 is fully validated.**

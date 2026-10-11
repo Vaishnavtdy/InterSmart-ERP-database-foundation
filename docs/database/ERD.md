@@ -2,6 +2,172 @@
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ PROJECT_QA : "QA cycles"
+  USERS ||--o{ PROJECT_QA : "creates"
+  USERS o|--o{ PROJECT_QA : "optional approval"
+  PROJECT_QA ||--o{ QA_TEST_CASES : "reusable definitions"
+  USERS ||--o{ QA_TEST_CASES : "creates"
+  QA_TEST_CASES ||--o{ QA_TEST_STEPS : "ordered manual steps"
+  QA_TEST_CASES ||--o{ QA_TEST_EXECUTIONS : "repeated runs, same QA version"
+  PROJECT_QA ||--o{ QA_TEST_EXECUTIONS : "run context"
+  USERS o|--o{ QA_TEST_EXECUTIONS : "optional executor before run"
+  DEVELOPMENT_ENVIRONMENTS o|--o{ QA_TEST_EXECUTIONS : "existing environment"
+  PROJECT_QA ||--o{ QA_BUILDS : "manual build metadata"
+  DEVELOPMENT_ENVIRONMENTS o|--o{ QA_BUILDS : "existing environment"
+  USERS ||--o{ QA_BUILDS : "records"
+  PROJECTS ||--o{ BUGS : "defects"
+  PROJECT_QA o|--o{ BUGS : "optional same-project QA cycle"
+  DEVELOPMENT_ENVIRONMENTS o|--o{ BUGS : "observed environment"
+  USERS ||--o{ BUGS : "reports"
+  USERS o|--o{ BUGS : "current assignee"
+  USERS o|--o{ BUGS : "latest verifier"
+  BUGS ||--o{ BUG_COMMENTS : "discussion"
+  USERS ||--o{ BUG_COMMENTS : "comments"
+  BUGS ||--o{ BUG_STATUS_HISTORY : "append-only audit"
+  USERS ||--o{ BUG_STATUS_HISTORY : "changes status"
+  BUGS ||--o{ BUG_TASK_LINKS : "development work"
+  TASKS ||--o{ BUG_TASK_LINKS : "common work records"
+  BUGS ||--o{ BUG_ATTACHMENTS : "exact File revision"
+  FILES ||--o{ BUG_ATTACHMENTS : "MinIO metadata reused"
+  USERS ||--o{ BUG_ATTACHMENTS : "attaches"
+  QA_TEST_EXECUTIONS ||--o{ QA_EXECUTION_BUGS : "discoveries"
+  BUGS ||--o{ QA_EXECUTION_BUGS : "defects from multiple runs"
+  TASKS ||--o{ QA_TASK_LINKS : "common QA work"
+  PROJECT_QA o|--o{ QA_TASK_LINKS : "optional cycle context"
+  QA_TEST_CASES o|--o{ QA_TASK_LINKS : "optional case context"
+  QA_TEST_EXECUTIONS o|--o{ QA_TASK_LINKS : "optional execution context"
+  PROJECT_QA ||--o{ QA_DAILY_STATUS : "reporting snapshots"
+  USERS ||--o{ QA_DAILY_STATUS : "reports"
+
+  PROJECT_QA {
+    uuid id PK
+    uuid project_id FK
+    int version_number "positive, unique with project_id"
+    string title
+    QaStatus status
+    string test_scope "nullable"
+    string test_strategy "nullable"
+    string environment_notes "nullable"
+    uuid created_by_id FK
+    uuid approved_by_id FK "nullable, paired with approved_at"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  QA_TEST_CASES {
+    uuid id PK
+    uuid project_qa_id FK
+    string test_case_code UK
+    string title
+    string module "nullable label"
+    QaTestType test_type
+    ProjectPriority priority
+    QaTestCaseStatus status
+    uuid created_by_id FK
+    timestamptz deleted_at "nullable"
+  }
+  QA_TEST_STEPS {
+    uuid id PK
+    uuid test_case_id FK
+    int step_number "positive, unique with case"
+    string action
+    string test_data "nullable"
+    string expected_result "nullable"
+  }
+  QA_TEST_EXECUTIONS {
+    uuid id PK
+    uuid test_case_id FK
+    uuid project_qa_id FK "same case QA cycle"
+    uuid executed_by_id FK "nullable before run"
+    uuid environment_id FK "nullable, existing Development"
+    string build_version "nullable snapshot label"
+    QaExecutionStatus status
+    timestamptz started_at "nullable"
+    timestamptz completed_at "nullable"
+  }
+  QA_BUILDS {
+    uuid id PK
+    uuid project_qa_id FK
+    string version
+    string build_number "nullable"
+    string commit_hash "nullable"
+    string release_notes "nullable"
+    uuid environment_id FK "nullable"
+    uuid created_by_id FK
+    timestamptz created_at
+  }
+  BUGS {
+    uuid id PK
+    uuid project_id FK
+    uuid project_qa_id FK "nullable, same project"
+    string bug_code UK
+    string title
+    string description
+    BugSeverity severity
+    ProjectPriority priority
+    BugStatus status
+    BugSource source
+    uuid environment_id FK "nullable"
+    string build_version "nullable snapshot label"
+    uuid reported_by_id FK
+    uuid assigned_to_id FK "nullable"
+    uuid verified_by_id FK "nullable, paired with verified_at"
+    timestamptz resolved_at "nullable"
+    timestamptz verified_at "nullable"
+    timestamptz closed_at "nullable"
+    timestamptz deleted_at "nullable"
+  }
+  BUG_COMMENTS {
+    uuid id PK
+    uuid bug_id FK
+    uuid user_id FK
+    string comment
+  }
+  BUG_STATUS_HISTORY {
+    uuid id PK
+    uuid bug_id FK
+    BugStatus from_status "nullable initial event"
+    BugStatus to_status
+    uuid changed_by_id FK
+    string reason "nullable"
+    timestamptz created_at
+  }
+  BUG_TASK_LINKS {
+    uuid id PK
+    uuid bug_id FK "unique with task"
+    uuid task_id FK
+    timestamptz created_at
+  }
+  BUG_ATTACHMENTS {
+    uuid id PK
+    uuid bug_id FK "unique with File"
+    uuid file_id FK
+    uuid created_by_id FK
+    timestamptz created_at
+  }
+  QA_EXECUTION_BUGS {
+    uuid id PK
+    uuid test_execution_id FK "unique with bug"
+    uuid bug_id FK
+    timestamptz created_at
+  }
+  QA_TASK_LINKS {
+    uuid id PK
+    uuid task_id FK
+    uuid project_qa_id FK "nullable"
+    uuid test_case_id FK "nullable"
+    uuid test_execution_id FK "nullable"
+    timestamptz created_at
+  }
+  QA_DAILY_STATUS {
+    uuid id PK
+    uuid project_qa_id FK
+    date status_date "unique with QA cycle"
+    QaDailyStatus status
+    string summary
+    int completion_percentage "nullable 0..100 snapshot"
+    uuid created_by_id FK
+  }
+
   PROJECTS ||--o{ SPRINTS : "reusable workstream planning"
   USERS ||--o{ SPRINTS : "creates"
   PROJECT_DEVELOPMENT o|--o{ SPRINTS : "optional same-project version"
@@ -976,3 +1142,18 @@ restrict deletion. Deployment attempts store metadata only, not CI/CD events or
 secrets. Daily percentage is a correctable snapshot, not authoritative progress.
 The report Prisma model is DevelopmentDailyReport, avoiding the requested enum
 name collision. Version/deployment-attempt retention remains a service contract.
+
+Step 15 QA & Bug Management: QA uses common tasks and existing generic sprints
+(workstream QA), ProjectTeam QA and File/ProjectResource QA. Sprint is unchanged.
+Definitions are reusable; executions are repeated actual runs. Environment/build
+references reuse Development metadata without CI/CD. Bugs are separate defects
+with optional cycle, multiple work-task links, exact File attachments and
+many-to-many execution discoveries. All 36 new FKs restrict deletion.
+Bug history cannot UPDATE/DELETE/TRUNCATE; current status and attributed events
+must be written atomically by future services, without a DB lifecycle state machine.
+Nullable QA task contexts independently reference real records; same-cycle/case/
+Project/workstream alignment is service policy. Environment, attachment and bug
+task/discovery Project alignment also require validation on writes and later moves.
+QA daily percentage is a snapshot; QaDailyReport avoids the enum naming collision.
+README lists every required/nullable scalar and timestamp omitted from compact
+entity blocks above. No secrets, duplicated work/team/storage or tenant engine.

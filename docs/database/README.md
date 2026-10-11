@@ -1097,3 +1097,151 @@ guarantee a caller never submits a secret.
 No GitHub/GitLab API, CI/CD, AWS, QA/bugs module, notifications, generic approvals,
 time tracking, tenant/organization fields, calculated balances/progress,
 frontend or application workflow is implemented. No seed data is necessary.
+
+## Step 15 — QA & Bug Management
+
+Migration: `20261011083443_add_qa_bug_management`.
+Thirteen tables and eight enums are added. Existing User, Project, Task, File
+and DevelopmentEnvironment receive inverse Prisma relations only. No existing
+table scalar, generic enum, Sprint relationship or migration is changed.
+
+### QA models
+
+UUID primary/foreign keys follow existing conventions. Names/titles use
+VARCHAR(255), codes VARCHAR(64), version/build labels VARCHAR(100), commit hashes
+VARCHAR(128), narrative fields TEXT. createdAt uses TIMESTAMPTZ(6) default now;
+updatedAt is Prisma-managed where listed. Raw SQL writers must maintain it.
+Only daily statusDate is DATE, consistent with UI/UX/Development reports.
+
+| Model / table | Required fields besides id/createdAt | Nullable fields |
+| --- | --- | --- |
+| ProjectQa / project_qa | projectId, versionNumber, title, status (DRAFT), createdById, updatedAt | description, testScope, testStrategy, environmentNotes, approvedById, approvedAt |
+| QaTestCase / qa_test_cases | projectQaId, testCaseCode, title, testType (FUNCTIONAL), reused priority (MEDIUM), status (DRAFT), createdById, updatedAt | description, module (text label, not duplicate Development module), preconditions, expectedResult, deletedAt |
+| QaTestStep / qa_test_steps | testCaseId, stepNumber, action, updatedAt | testData, expectedResult |
+| QaTestExecution / qa_test_executions | testCaseId, projectQaId, status (NOT_RUN), updatedAt | executedById, environmentId, buildVersion, startedAt, completedAt, notes |
+| QaBuild / qa_builds | projectQaId, version, createdById | buildNumber, commitHash, releaseNotes, environmentId |
+| QaTaskLink / qa_task_links | taskId | projectQaId, testCaseId, testExecutionId |
+| QaDailyReport / qa_daily_status | projectQaId, statusDate, status (NOT_STARTED), summary, createdById, updatedAt | completedWork, plannedWork, blockers, risks, completionPercentage |
+
+Project/version is unique and version positive; each case has a globally unique
+code, retained after soft deletion. Test steps are positive and unique by
+case/number. Cases are reusable definitions; executions are repeated actual
+run records, not a second copy of the test case. Composite FK ensures execution
+case and projectQa refer to the same QA version. NOT_RUN may omit actor/runtime
+metadata; future services require appropriate actor/time when recording a run.
+When both execution timestamps exist, completedAt cannot precede startedAt.
+Execution results do not automatically rewrite case status or create bugs.
+Historical reproducibility after case/step edits requires future versioning or
+snapshot policy; this step does not copy case definitions into execution rows.
+
+All three QaTaskLink contexts are nullable, including projectQaId for a
+project-level QA planning task. Each independently has a real FK even if another
+context is NULL. A SQL expression unique index normalizes UUID NULLs to empty
+strings to deduplicate all eight context combinations without a sentinel UUID.
+This custom index is migration-owned; Prisma cannot express expression indexes.
+There is no context-requiring CHECK. Different contexts may share one task.
+Services must validate supplied contexts agree on QA version/case, task belongs
+to the same Project and has QA workstream, and later ownership edits preserve
+these policies. Existing common task status/history/assignment contracts apply.
+
+QaBuild is lightweight manually recorded build metadata, not automated releases.
+BuildNumber is nullable string (e.g. "128" or a CI build label); version/build
+identity is intentionally nonunique to permit environment/retest records.
+Execution/bug buildVersion is a snapshot label, not a foreign key to QaBuild.
+No extra build_id field, release engine, build secret or CI/CD is introduced.
+Environment references reuse DevelopmentEnvironment; future services validate
+its owning Development Project matches QA/bug Project, including later moves.
+
+### Bugs and associations
+
+| Model / table | Required fields besides id/createdAt | Nullable fields |
+| --- | --- | --- |
+| Bug / bugs | projectId, bugCode, title, description, severity (MAJOR), reused priority (MEDIUM), status (OPEN), source (MANUAL_TESTING), reportedById, updatedAt | projectQaId, stepsToReproduce, expectedResult, actualResult, environmentId, buildVersion, assignedToId, verifiedById, resolvedAt, verifiedAt, closedAt, deletedAt |
+| BugComment / bug_comments | bugId, userId, comment, updatedAt | none |
+| BugStatusHistory / bug_status_history | bugId, toStatus, changedById | fromStatus (initial event), reason |
+| BugTaskLink / bug_task_links | bugId, taskId | none |
+| BugAttachment / bug_attachments | bugId, fileId, createdById | none |
+| QaExecutionBug / qa_execution_bugs | testExecutionId, bugId | none |
+
+Bug is a separate domain record, never only a generic Task. Project is required;
+QA version is optional for production/customer-reported defects outside a cycle.
+When QA is supplied, a composite FK requires the same Project. BugCode is
+globally unique, including soft-deleted records. Severity and priority are distinct.
+Current responsible employee is assignedToId; no assignment-history engine added.
+Latest verification actor/time are paired and nullable; historical lifecycle facts
+belong to BugStatusHistory. No dedicated bug_verifications table.
+
+Bug↔Task, Bug↔File and Execution↔Bug have unique pairs and allow multiple records
+on both sides. Tasks remain executable work; bugs remain defects. Associations
+do not set assignment or lifecycle automatically. A failed execution can discover
+several bugs; the same defect can be reproduced by several test runs. Retesting
+does not require deleting a discovery association when the execution/result changes.
+Attachment File is an exact physical revision, not an inferred "current" version.
+Actual binaries remain in MinIO; no new file engine or PostgreSQL binaries.
+Services validate BugTaskLink Project and Development/BUG_FIX suitability,
+attachment Project/authorization, and execution-bug Project/cycle policy.
+
+### Enums
+
+- QaStatus: DRAFT, PLANNING, IN_PROGRESS, IN_REVIEW, READY_FOR_RELEASE,
+  RETESTING, COMPLETED, ON_HOLD, CANCELLED.
+- QaTestType: FUNCTIONAL, UI, API, INTEGRATION, REGRESSION, SMOKE, SANITY,
+  PERFORMANCE, SECURITY, COMPATIBILITY, USER_ACCEPTANCE, OTHER.
+- QaTestCaseStatus: DRAFT, READY, IN_PROGRESS, PASSED, FAILED, BLOCKED, RETIRED.
+- QaExecutionStatus: NOT_RUN, PASSED, FAILED, BLOCKED, SKIPPED, IN_PROGRESS.
+- QaDailyStatus: NOT_STARTED, IN_PROGRESS, BLOCKED, READY_FOR_RELEASE,
+  COMPLETED, ON_HOLD.
+- BugSeverity: BLOCKER, CRITICAL, MAJOR, MINOR, TRIVIAL.
+- BugStatus: OPEN, TRIAGED, ASSIGNED, IN_PROGRESS, FIXED, READY_FOR_RETEST,
+  REOPENED, VERIFIED, CLOSED, WONT_FIX, DUPLICATE, CANNOT_REPRODUCE, BLOCKED.
+- BugSource: MANUAL_TESTING, REGRESSION, UAT, PRODUCTION, CUSTOMER_REPORTED,
+  INTERNAL, AUTOMATED_TEST, OTHER.
+
+Both case/bug priority reuse ProjectPriority. TaskType.TESTING, TaskWorkstream.QA,
+ProjectRole.QA and ProjectResourceType.QA already exist and remain unchanged.
+The attachment's later "REGESSION" spelling is corrected to specified REGRESSION.
+Prisma model QaDailyReport avoids colliding with requested enum QaDailyStatus;
+the SQL table remains qa_daily_status.
+
+### Audit, lifecycle, reports and retention
+
+BugStatusHistory blocks UPDATE, DELETE and TRUNCATE via append-only triggers.
+Initial fromStatus may be NULL; subsequent events must describe distinct statuses.
+No CHECK encodes the state machine or requires particular dates for statuses.
+The recommended fix/retest/verify/close and reopen paths are structurally supported.
+Future status writers must lock the Bug, validate transitions and authorization,
+update current status/assignment/verification/times, and append attributed history
+in the SAME transaction. Defaults do not automatically insert history. Reopening
+must apply an explicit latest-verification retention/clear policy atomically.
+Corrections to historical facts append events rather than mutating old rows.
+Current assignee is not reconstructed from arbitrary status history.
+
+All 36 new FKs RESTRICT deletion. User/project/case/bug soft deletion retains
+attribution; referenced records cannot be cascade-deleted. Case/step/run retention
+and finalized QA version graphs remain future service rules; RESTRICT does not
+freeze content or protect unreferenced leaf deletion.
+Daily version/date is unique; nullable integer 0..100 completion is a correctable
+reporting snapshot, not authoritative project progress. Reports do not complete
+tasks/test cases/bugs/sprints and no calculated project progress field is added.
+
+### Index coverage and reuse
+
+ProjectQa project/version uniqueness covers project queries; status, creator,
+approver and createdAt are indexed. TestCase indexes owner/deletion, status,
+type, priority and creator. Step uniqueness indexes case/order. Executions index
+case, QA version, executor, existing environment, status and start date.
+Builds index QA/version/build, version, build, environment and author.
+Bugs index project/deletion, QA, status/deletion, severity, priority, current
+assignee, reporter, verifier, environment and created date.
+Comments index bug, author and date; history indexes bug/date, actor and date.
+Link unique indexes cover the first endpoint and separate indexes cover remaining
+endpoints; attachments also index creator. QA task links index all four FKs.
+Daily uniqueness covers QA/date with date/author indexes.
+
+QA tasks use common Task and existing generic Sprint with workstream QA; no
+Sprint change or mandatory QA-cycle FK is needed. Team membership uses existing
+project_team QA role. QA resource documents use File/ProjectResource QA type.
+Regression testing uses QaTestType.REGRESSION and repeated executions; no
+regression table, duplicated Development module or environment, task/team/storage
+engine, organization/tenant, notifications, generic approvals, HR, time tracking,
+CI/CD, customer portal, AWS, frontend or APIs are added. No seed changes needed.

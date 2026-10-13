@@ -108,6 +108,14 @@ outside this ERP; configuration flags do not configure those services.
 
 ## Gotchas
 
+- Configuration is controlled, not a generic key/value CMS. Setting keys/types
+  and global flag keys have SQL allowlists; new keys require reviewed schema
+  changes and consumers. No credential storage, automatic code generator,
+  calendar engine, audit interceptor or permission grants are implied.
+- Number allocation must use atomic UPDATE ... RETURNING in the business-write
+  transaction. Initialize from existing codes, never reset/reuse counters, and
+  pad without truncating. Existing entity-code uniqueness remains authoritative.
+
 - Audit/session/security tables are database foundations, not automatic logging
   or authentication. Never copy credentials, request bodies or full snapshots
   into metadata/text. Session references are independent UUIDs, never tokens.

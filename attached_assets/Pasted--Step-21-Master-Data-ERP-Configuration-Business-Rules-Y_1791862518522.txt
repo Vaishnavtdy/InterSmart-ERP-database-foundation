@@ -1,0 +1,1000 @@
+# Step 21 — Master Data / ERP Configuration / Business Rules
+
+You are continuing development of the existing **InterSmart Internal ERP**.
+
+This is **Step 21 only**.
+
+## Objective
+
+Implement a controlled configuration and master-data layer for business values that need to be managed by authorized administrators.
+
+The goal is to avoid hard-coding every business classification while keeping the core ERP schema strongly typed and relational.
+
+This step should cover:
+
+1. Business master data
+2. Configurable project categories
+3. Configurable task/workstream metadata where appropriate
+4. Customer/lead source configuration
+5. Payment configuration
+6. Leave configuration support
+7. System business settings
+8. Number/code configuration
+9. Controlled feature flags
+10. Configuration auditability
+
+Do NOT implement frontend configuration screens, APIs, controllers, services, or admin UI in this step.
+
+---
+
+# 1. IMPORTANT ARCHITECTURE RULE
+
+Before making any change:
+
+- Inspect the complete Prisma schema.
+- Reuse existing master tables.
+- Do not create duplicate category tables.
+- Do not replace existing enums unnecessarily.
+- Do not convert every enum into a database table.
+- Do not create an unrestricted key/value configuration system.
+- Do not create `organization_id`.
+- Do not introduce AWS.
+- Do not create a second authorization system.
+- Do not create another audit system.
+
+The goal is **controlled configurability**, not a generic CMS.
+
+---
+
+# 2. EXISTING MASTER DATA TO REVIEW
+
+Inspect these existing models first:
+
+```text id="w8q2x5"
+departments
+project_categories
+leave_types
+roles
+permissions
+```
+
+Also inspect enum values currently used for:
+
+```text id="a3k7m9"
+project status
+priority
+lead source
+lead status
+proposal status
+payment type
+payment method
+task type
+task workstream
+bug severity
+bug status
+meeting type
+notification type
+```
+
+Do not immediately convert these enums into tables.
+
+Determine which values are:
+
+### Stable system states
+
+These should remain enums.
+
+Examples:
+
+```text
+PROJECT status
+TASK status
+BUG status
+PAYMENT status
+LEAVE request status
+```
+
+### Business master data
+
+These may be database-managed records.
+
+Examples:
+
+```text
+project categories
+leave types
+customer sources
+lead sources
+```
+
+---
+
+# 3. PROJECT CATEGORY REVIEW
+
+The existing:
+
+```text id="7z2m4q"
+project_categories
+```
+
+already supports hierarchical project categories.
+
+Do NOT create another project-category table.
+
+Verify that it supports:
+
+- parent category
+- child category
+- code
+- name
+- description
+- active/inactive
+- timestamps
+
+Recommended structure:
+
+```text
+CMS
+ ├── Copy Website
+ ├── AI / Custom
+ ├── WordPress
+ ├── Strapi
+ ├── PHP
+ └── Node
+
+E-Commerce
+ ├── AI / Custom
+ ├── WooCommerce
+ ├── Shopify
+ ├── PHP
+ └── Node
+
+Custom Web
+ ├── AI / Custom
+ ├── PHP
+ └── Node
+
+Mobile App
+ ├── PHP
+ └── Node
+```
+
+Do not hard-code this hierarchy into application logic.
+
+If seed data already exists, preserve it.
+
+---
+
+# 4. BUSINESS SOURCES
+
+The current lead source enum may contain:
+
+```text id="k8v3r1"
+WEBSITE
+REFERRAL
+SOCIAL_MEDIA
+ADVERTISEMENT
+COLD_CALL
+EMAIL
+DIRECT
+EXISTING_CUSTOMER
+OTHER
+```
+
+Inspect whether these values need to become configurable.
+
+If the business requires administrators to add/edit lead sources, create:
+
+## `lead_sources`
+
+Fields:
+
+- `id` UUID PK
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `is_active`
+- `sort_order`
+- `created_at`
+- `updated_at`
+
+Do NOT create this table if an equivalent source master already exists.
+
+If the existing enum is sufficient and there is no requirement for runtime customization, leave the enum unchanged.
+
+---
+
+# 5. CUSTOMER SOURCES
+
+If customer source and lead source are currently mixed or duplicated, inspect the existing schema.
+
+If a customer-specific source master is needed, create:
+
+## `customer_sources`
+
+Fields:
+
+- `id`
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `is_active`
+- `sort_order`
+- `created_at`
+- `updated_at`
+
+Only create this if it provides a real distinction from lead sources.
+
+Do not create duplicate business concepts.
+
+---
+
+# 6. QUALITY LEVELS
+
+Projects currently have an optional quality level.
+
+Inspect how `quality_level` is represented.
+
+If it is currently a free-text field and the business requires controlled values, create:
+
+## `quality_levels`
+
+Fields:
+
+- `id`
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `sort_order`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Possible values may include:
+
+```text
+STANDARD
+PREMIUM
+HIGH
+ENTERPRISE
+```
+
+Do not seed arbitrary values unless they are already defined by the business.
+
+If the existing field is an enum and is sufficient, leave it unchanged.
+
+---
+
+# 7. PLATFORM MASTER
+
+Inspect the existing project `platform` field.
+
+If platform values need to be administratively configurable, create:
+
+## `platforms`
+
+Fields:
+
+- `id`
+- `name`
+- `code` UNIQUE
+- `description` nullable
+- `is_active`
+- `sort_order`
+- `created_at`
+- `updated_at`
+
+Examples:
+
+```text
+WEB
+MOBILE
+ANDROID
+IOS
+CMS
+E_COMMERCE
+CUSTOM
+OTHER
+```
+
+Do not automatically migrate an existing enum to this table unless there is a clear requirement.
+
+---
+
+# 8. CURRENCY MASTER
+
+Financial records already use currency.
+
+If currency is currently free text, inspect whether a controlled currency master is needed.
+
+If necessary create:
+
+## `currencies`
+
+Fields:
+
+- `id`
+- `code` UNIQUE
+- `name`
+- `symbol`
+- `decimal_places`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Example:
+
+```text
+INR
+USD
+EUR
+GBP
+AED
+```
+
+Do not create exchange-rate functionality in this step.
+
+Do not store exchange rates here.
+
+---
+
+# 9. PAYMENT CONFIGURATION
+
+Do not convert payment status into a master table.
+
+Payment statuses are workflow states and should remain strongly typed.
+
+Review existing:
+
+```text
+payment_type
+payment_method
+payment_status
+payment_request_status
+```
+
+Only create master tables if the business explicitly requires administrators to configure payment types/methods.
+
+Do not create:
+
+```text
+payment_statuses
+payment_request_statuses
+```
+
+---
+
+# 10. LEAVE CONFIGURATION
+
+The existing:
+
+```text id="3x8m7p"
+leave_types
+```
+
+should remain the authoritative leave type master.
+
+Review whether it supports:
+
+- paid/unpaid
+- active/inactive
+- approval requirement
+
+If the business needs annual allocation defaults, extend `leave_types` minimally with:
+
+- `default_allocated_days` nullable Decimal
+
+Do NOT store employee-specific leave balances in `leave_types`.
+
+Employee balances remain in:
+
+```text
+leave_balances
+```
+
+Do not implement leave accrual automation yet.
+
+---
+
+# 11. NUMBERING / CODE CONFIGURATION
+
+The ERP uses codes such as:
+
+```text id="5j8p3v"
+employee_code
+customer_code
+lead_code
+proposal_code
+project_code
+payment_request_code
+payment_code
+bug_code
+meeting_code
+complaint_code
+appreciation_code
+```
+
+Do not hard-code numbering logic directly into controllers.
+
+Create:
+
+## `number_sequences`
+
+Fields:
+
+- `id`
+- `entity_type` UNIQUE
+- `prefix`
+- `current_value`
+- `padding_length`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Example:
+
+```text
+PROJECT
+prefix = PRJ
+current_value = 1024
+padding_length = 6
+```
+
+Possible generated code:
+
+```text
+PRJ001024
+```
+
+Entity types may include:
+
+```text
+USER
+CUSTOMER
+LEAD
+PROPOSAL
+PROJECT
+PAYMENT_REQUEST
+PAYMENT
+BUG
+MEETING
+HR_COMPLAINT
+APPRECIATION
+```
+
+Only include entities that actually use generated codes.
+
+---
+
+# 12. SEQUENCE SAFETY
+
+The future application service must generate codes atomically.
+
+The database design must prevent two simultaneous requests from generating the same number.
+
+Do not implement the sequence service in this step.
+
+Do not use:
+
+```text
+SELECT current_value
+UPDATE current_value
+```
+
+without transaction/locking in the future implementation.
+
+The sequence row should be updated atomically.
+
+---
+
+# 13. SYSTEM BUSINESS SETTINGS
+
+Do NOT create a completely generic key/value settings table.
+
+Instead create a controlled model:
+
+## `system_settings`
+
+Fields:
+
+- `id`
+- `key` UNIQUE
+- `value`
+- `value_type`
+- `description` nullable
+- `is_sensitive`
+- `is_editable`
+- `updated_by_id` FK → users
+- `created_at`
+- `updated_at`
+
+Allowed `value_type`:
+
+```text
+STRING
+INTEGER
+DECIMAL
+BOOLEAN
+DATE
+JSON
+```
+
+Important:
+
+This table is for **non-secret business configuration only**.
+
+Examples:
+
+```text
+default_project_currency
+default_task_due_days
+default_notification_expiry_days
+company_timezone
+default_leave_year_start
+```
+
+Do NOT store:
+
+```text
+SMTP password
+MinIO secret
+database password
+JWT secret
+API keys
+private keys
+AWS credentials
+```
+
+Secrets belong in environment/secret-management infrastructure.
+
+---
+
+# 14. SENSITIVE SETTING RULE
+
+Although `is_sensitive` may identify settings that need restricted access, do NOT use this table as a secret store.
+
+A future application layer can use:
+
+```text
+is_sensitive = true
+```
+
+to restrict visibility for non-sensitive business configuration.
+
+But credentials must still remain outside PostgreSQL.
+
+---
+
+# 15. FEATURE FLAGS
+
+Create a controlled feature flag model only if the ERP needs runtime enable/disable functionality.
+
+## `feature_flags`
+
+Fields:
+
+- `id`
+- `key` UNIQUE
+- `name`
+- `description` nullable
+- `is_enabled`
+- `created_at`
+- `updated_at`
+
+Examples:
+
+```text
+new_dashboard
+advanced_reporting
+ai_assistant
+customer_portal
+advanced_notifications
+```
+
+Do not implement user-specific feature targeting.
+
+Do not create:
+
+```text
+feature_flag_users
+feature_flag_roles
+```
+
+in this step.
+
+Global feature flags are sufficient for now.
+
+---
+
+# 16. FEATURE FLAG VS PERMISSION
+
+Do not confuse:
+
+```text
+feature flag
+```
+
+with:
+
+```text
+permission
+```
+
+Feature flag:
+
+> Is this product capability enabled?
+
+Permission:
+
+> Is this user allowed to use it?
+
+Continue using:
+
+```text
+roles
+permissions
+user_roles
+role_permissions
+```
+
+for authorization.
+
+---
+
+# 17. BUSINESS CALENDAR CONFIGURATION
+
+Do not create an entire calendar engine.
+
+If the ERP needs configurable working days, create:
+
+## `business_calendar_settings`
+
+Fields:
+
+- `id`
+- `day_of_week`
+- `is_working_day`
+- `working_start_time` nullable
+- `working_end_time` nullable
+- `created_at`
+- `updated_at`
+
+Unique:
+
+```text
+day_of_week
+```
+
+Use day values:
+
+```text
+MONDAY
+TUESDAY
+WEDNESDAY
+THURSDAY
+FRIDAY
+SATURDAY
+SUNDAY
+```
+
+This is only configuration.
+
+Do not implement:
+
+- holiday management
+- attendance
+- timesheets
+- payroll
+
+in this step.
+
+---
+
+# 18. COMPANY HOLIDAYS
+
+If the ERP needs project/task date calculations later, holidays will eventually be useful.
+
+Create:
+
+## `holidays`
+
+Fields:
+
+- `id`
+- `name`
+- `holiday_date`
+- `description` nullable
+- `is_optional`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Unique:
+
+```text
+holiday_date + name
+```
+
+Do not create recurring holiday automation yet.
+
+Do not create regional holiday logic yet.
+
+---
+
+# 19. CONFIGURATION AUDIT
+
+All changes to:
+
+- system settings
+- feature flags
+- number sequences
+- master data
+
+must eventually be recorded through the existing:
+
+```text
+audit_logs
+```
+
+Do NOT create:
+
+```text
+setting_history
+feature_flag_history
+sequence_history
+```
+
+unless a future requirement specifically requires dedicated versioning.
+
+---
+
+# 20. RBAC
+
+Reuse the existing RBAC system.
+
+Possible permissions:
+
+```text
+master_data.read
+master_data.manage
+
+system_settings.read
+system_settings.manage
+
+feature_flags.read
+feature_flags.manage
+
+number_sequences.read
+number_sequences.manage
+
+business_calendar.read
+business_calendar.manage
+```
+
+Do not automatically assign them.
+
+Only authorized administrator roles should receive them later.
+
+---
+
+# 21. WHAT SHOULD REMAIN ENUMS
+
+Do not over-normalize.
+
+Keep workflow states as enums where appropriate:
+
+```text
+project.status
+task.status
+bug.status
+payment.status
+payment_request.status
+leave_request.status
+meeting.status
+performance_review.status
+```
+
+These represent application workflows rather than business master data.
+
+This distinction is important.
+
+---
+
+# 22. DATABASE RELATIONSHIPS
+
+If converting an existing field from enum/string to a master table, do so only when necessary.
+
+For example:
+
+```text
+projects.category_id → project_categories.id
+```
+
+is already correct.
+
+Do not create a second:
+
+```text
+project_category_master
+```
+
+table.
+
+For new masters, use foreign keys from the relevant entities.
+
+---
+
+# 23. NO GENERIC CONFIGURATION JSON
+
+Do not create something like:
+
+```text
+system_config
+----------------
+key
+value_json
+```
+
+for everything.
+
+Configuration that has relationships or business meaning should be modeled relationally.
+
+JSON is appropriate only when the value is genuinely configuration metadata.
+
+---
+
+# 24. MIGRATION STRATEGY
+
+Before changing an existing field:
+
+1. Inspect how it is currently used.
+2. Determine whether data already exists.
+3. Do not destroy existing values.
+4. Create the new master records.
+5. Migrate existing values safely.
+6. Add the foreign key.
+7. Remove the old field only when safe.
+
+If there is no existing data, prefer the cleanest final schema.
+
+Do not use destructive migration shortcuts.
+
+---
+
+# 25. MIGRATION
+
+Create one clean Prisma migration.
+
+Suggested name:
+
+```bash
+npx prisma migrate dev --name add_master_data_configuration
+```
+
+Do NOT:
+
+```bash
+npx prisma migrate reset
+```
+
+Do not:
+
+- delete migrations
+- drop unrelated tables
+- recreate the database
+- remove existing data
+- rewrite unrelated models
+
+Only implement Step 21.
+
+---
+
+# 26. VALIDATION
+
+Run:
+
+```bash
+npx prisma validate
+```
+
+Then:
+
+```bash
+npx prisma generate
+```
+
+Then run the existing project checks from `package.json`:
+
+- TypeScript
+- lint
+- tests
+- build
+
+Fix only issues introduced by Step 21.
+
+---
+
+# 27. DOCUMENTATION
+
+Update existing schema/architecture documentation.
+
+Document:
+
+### Stable workflow state
+
+```text
+Enum
+```
+
+### Configurable business master
+
+```text
+Database table
+```
+
+### Runtime application configuration
+
+```text
+system_settings
+```
+
+### Product capability toggle
+
+```text
+feature_flags
+```
+
+### Sequential code generation
+
+```text
+number_sequences
+```
+
+### Working-day configuration
+
+```text
+business_calendar_settings
+holidays
+```
+
+---
+
+# 28. FINAL VALIDATION CHECKLIST
+
+Before finishing:
+
+- [ ] Existing schema inspected.
+- [ ] Existing project category table reused.
+- [ ] Existing leave type table reused.
+- [ ] No duplicate master tables created.
+- [ ] Stable workflow enums preserved.
+- [ ] Configurable business data identified correctly.
+- [ ] Number sequence model created if applicable.
+- [ ] System settings model created.
+- [ ] Feature flags created.
+- [ ] Business calendar configuration created.
+- [ ] Holiday model created.
+- [ ] No credentials stored.
+- [ ] No secrets stored in PostgreSQL.
+- [ ] Existing RBAC reused.
+- [ ] Existing audit system reused.
+- [ ] No generic unrestricted configuration system created.
+- [ ] No AWS services.
+- [ ] Proper foreign keys added.
+- [ ] Proper unique constraints added.
+- [ ] Proper indexes added.
+- [ ] Existing data preserved.
+- [ ] Migration created successfully.
+- [ ] `prisma validate` passes.
+- [ ] `prisma generate` passes.
+- [ ] Existing tests pass.
+- [ ] Existing build passes.
+- [ ] Documentation updated.
+
+## STOP CONDITION
+
+After completing Step 21 and validation, **STOP**.
+
+Do not automatically implement Step 22.
+
+Wait for the next instruction.

@@ -2183,3 +2183,196 @@ No authorization implementation/RLS policy introduced by this migration.
 No admin_logs, per-module activity/audit tables, duplicate status histories,
 system_settings/key-value configuration, request payload tables, authentication
 logic, interceptors, middleware, services, APIs, frontend, AWS or Step 21.
+
+## Step 21 — controlled master data and business configuration
+
+Migration: `20261013033802_add_master_data_configuration`. One transactional,
+additive migration; no resets, old migration edits, removed columns or data
+replacement. UUID primary keys use Prisma-generated UUIDs (raw SQL writers
+must supply them). New mutable records have `created_at` and Prisma-managed
+`updated_at`, both `timestamptz(6)`; raw SQL writers must set `updated_at`.
+
+### Review and reuse
+
+The complete schema was inspected before changes. Existing masters:
+
+| Concept | Decision |
+| --- | --- |
+| Departments | Reuse `departments`; preserve the nine controlled department codes |
+| Project categories | Reuse `project_categories`, with parent/children, unique code, name, description, active flag and timestamps |
+| Leave types | Reuse `leave_types`: paid/unpaid, approval requirement and active flag already exist |
+| Lead source | Keep `LeadSource`: WEBSITE, REFERRAL, SOCIAL_MEDIA, ADVERTISEMENT, COLD_CALL, EMAIL, DIRECT, EXISTING_CUSTOMER, OTHER |
+| Customer source | Preserve nullable descriptive `customers.source`; no confirmed distinct configurable source taxonomy |
+| Project quality/platform | Keep existing sufficient `ProjectQualityLevel` and `ProjectPlatform` enums |
+| Task metadata | Keep `TaskType`, `TaskWorkstream`, common task engine and generic sprints; no duplicate workstream/category masters |
+| Payment classifications | Keep `PaymentType` and `PaymentMethod`; no explicit runtime customization requirement |
+| Currency | Preserve existing three-letter uppercase checks and financial fields; no currency catalog or exchange-rate requirement established |
+| Authorization | Canonical roles/permissions/user_roles/role_permissions are absent; ProjectRole is staffing, not RBAC |
+
+Stable project/task/bug/payment/payment-request/leave-request/meeting/performance
+workflow states remain enums. Project priority, bug severity, lead/proposal
+statuses, meeting types and notification types also remain unchanged. A new
+table is not justified merely because a value is an enum.
+
+The existing category seed already contains all four requested roots and their
+children (CMS, E-Commerce, Custom Web, Mobile App; 20 records). Its implementation,
+IDs, hierarchy, names and active flags are preserved. No new categories or
+departments are seeded or hard-coded into application logic.
+
+`leave_types.default_allocated_days` is optional `decimal(10,2)`, with a
+nonnegative/finite check. NULL means no configured annual default, not zero.
+It is a starting allocation policy, never an employee balance, accrual,
+carry-forward rule or automatic entitlement. Existing `leave_balances` and all
+leave request/history writes remain unchanged.
+
+### Number sequences
+
+`number_sequences`: UUID `id`, unique `entity_type`, required `prefix`,
+`current_value` bigint (default 0), `padding_length` smallint (default 6),
+`is_active` (default true), and timestamps. Index on `is_active`.
+
+Closed entity enum: USER, CUSTOMER, LEAD, PROPOSAL, PROJECT, TASK,
+PAYMENT_REQUEST, PAYMENT, QA_TEST_CASE, BUG, MEETING, LEAVE_REQUEST,
+HR_COMPLAINT, APPRECIATION. Each has an existing global unique business-code
+field. Sprint/module codes are scoped; report/category/leave-type/cycle codes
+are authored catalog identifiers, so none is included in the generator registry.
+
+`current_value` is the **last allocated** number, not the next candidate.
+SQL checks enforce 0..9999999999999999, padding 1..16, and a 1..16-character
+uppercase alphanumeric/underscore/hyphen prefix starting with a letter.
+Together these fit the smallest existing 32-character business-code column.
+Padding is a minimum width: never truncate digits when the counter exceeds it.
+The illustrative `PRJ001024` is formatting only, not a seeded starting value.
+
+Future writers must allocate with a single row-locking atomic statement inside
+the same transaction as the new entity and its audit evidence:
+
+```sql
+UPDATE number_sequences
+SET current_value = current_value + 1, updated_at = CURRENT_TIMESTAMP
+WHERE entity_type = $1 AND is_active
+  AND current_value < 9999999999999999
+RETURNING current_value, prefix, padding_length;
+```
+
+Concurrent committed updates on the same row obtain distinct numbers. An absent,
+inactive or exhausted row returns nothing and must fail explicitly. The row's
+unique entity type and existing entity-code uniqueness remain safeguards; they
+do not make a separate unlocked SELECT followed by UPDATE safe.
+Format returned bigint digits without converting them to a JavaScript Number
+(which loses precision). Do not use PostgreSQL `lpad` with a shorter width than
+the number of digits; it truncates rather than providing minimum-width padding.
+
+No allocation service, prefixes, sequence rows or code replacements were
+created. Initialize counters from **existing codes** under an approved numbering
+policy before enabling generation. Never decrement/reset/reuse an allocated
+counter or change a live prefix without collision analysis; these are future
+authorized writer policies, not automatic operations of this migration.
+No promise of gapless numbering is made.
+
+### Controlled system settings
+
+`system_settings`: UUID `id`, unique bounded `key`, textual `value`, required
+`value_type`, nullable description, `is_sensitive` (false), `is_editable` (true),
+nullable `updated_by_id` → `users.id` (RESTRICT), and timestamps. NULL updater
+permits a trusted bootstrap/system action, not anonymous administrator edits.
+Indexes cover updater and editable/sensitivity filtering.
+
+The value-type enum contains STRING, INTEGER, DECIMAL, BOOLEAN, DATE and JSON.
+**SQL key/type and value checks close the registry** to:
+
+| Key | Required type | Representation/check |
+| --- | --- | --- |
+| `default_project_currency` | STRING | Three uppercase letters, matching existing currency representation |
+| `default_task_due_days` | INTEGER | Canonical nonnegative decimal integer, 0..2147483647 |
+| `default_notification_expiry_days` | INTEGER | Same integer format/range |
+| `company_timezone` | STRING | Recognized PostgreSQL timezone name, at most 128 characters |
+| `default_leave_year_start` | DATE | Real calendar date in canonical YYYY-MM-DD |
+
+The timezone CHECK uses the SQL validation function
+`erp_configuration_timezone_valid`, which consults PostgreSQL timezone names.
+Date validation is independent of session DateStyle. No policy values are
+seeded: missing settings mean **unconfigured**, not a silently invented default.
+Interpretation of the leave-year anchor, due-day calculation and notification
+expiry is future application work. Existing financial INR defaults are unchanged;
+adding a setting alone neither overrides them nor rewrites historical records.
+Currency format checking is not an ISO currency registry.
+
+Future keys require a reviewed migration extending the allowlist, a documented
+key-specific validator and a typed consumer. DECIMAL/BOOLEAN/JSON are supported
+type vocabulary, but have no approved keys yet; arbitrary JSON settings cannot
+be inserted. Relational concepts must remain relational rather than becoming
+configuration blobs.
+
+`is_sensitive` classifies restricted-visibility **non-secret** business data,
+not encryption or a secret-store exemption. Never store SMTP/MinIO/database/JWT
+secrets, API keys, private keys, credentials, tokens or request bodies in values,
+descriptions, flags or audit context. Unknown secret-named keys are rejected,
+but SQL shape checks are not content redaction or authorization. Future trusted
+writers must sanitize all free text and honor `is_editable`; neither flag is an
+implemented permission system. Secrets remain in environment/secret infrastructure.
+
+### Global feature flags
+
+`feature_flags`: UUID `id`, unique key, nonblank trimmed name, nullable
+description, `is_enabled` default false and timestamps. Enabled-state index.
+SQL allowlists `new_dashboard`, `advanced_reporting`, `ai_assistant`,
+`customer_portal`, `advanced_notifications`. New keys require reviewed changes;
+no rows are seeded and no capability is implemented/enabled by this migration.
+
+A flag means “product capability enabled”, not “user authorized”. There are no
+user/role targeting tables, alternate permissions or automatic grants.
+Future consumers check both global enablement and actual authorization.
+
+### Business calendar and holidays
+
+`business_calendar_settings`: UUID `id`, unique day enum (MONDAY..SUNDAY),
+required explicit `is_working_day`, nullable start/end `time(0)` and timestamps.
+Working-day index. Hours must be a NULL pair or an ordered same-day interval.
+NULL means unknown/unconfigured hours, not 24-hour availability. Hours may be
+retained on a nonworking day but future calculations ignore them while closed.
+These are company-local wall-clock times, not UTC instants. Prisma represents
+TIME through DateTime: use a consistent UTC date anchor to transport the clock
+components without applying browser/host timezone conversions.
+
+`holidays`: UUID `id`, nonblank trimmed name, date-only `holiday_date`,
+nullable description, `is_optional` default false, `is_active` default true,
+timestamps, unique `(holiday_date, name)` and index `(is_active, holiday_date)`.
+Different holidays may share a date; the same named holiday cannot be duplicated
+on that date. Uniqueness is exact/case-sensitive. Optional versus mandatory
+holiday effects remain an approved future business policy.
+
+No working-week defaults, office hours, timezone or holiday dates are seeded.
+No calendar engine, recurring/regional holidays, attendance, timesheets,
+payroll, scheduling/date calculations or leave accrual automation is added.
+
+### Audit and authorization boundaries
+
+Future authorized configuration/master changes and sequence allocations must
+coordinate selected safe evidence in existing `audit_logs` with their write.
+`updated_by_id` is attribution, not access control. No setting_history,
+feature_flag_history, sequence_history, new audit system or interceptor created.
+
+Requested future permission names: `master_data.read`, `master_data.manage`,
+`system_settings.read`, `system_settings.manage`, `feature_flags.read`,
+`feature_flags.manage`, `number_sequences.read`, `number_sequences.manage`,
+`business_calendar.read`, `business_calendar.manage`. Canonical RBAC is absent,
+so these are documented only, not seeded or assigned. No administrator roles or
+second authorization system invented.
+
+No organization_id, AWS, credentials, secrets, frontend, APIs, controllers,
+services, admin UI or Step 22. Existing seed data and all domain histories remain.
+
+### Verification
+
+Prisma format, validate, generate, migration deployment/status and schema diff
+passed. Database is up to date with no Prisma schema drift. Root build passed,
+including all configured TypeScript checks. There are no configured lint/test
+scripts; direct database/Prisma verification covered 700 preservation,
+constraint, ORM and concurrent-allocation checks.
+
+Concurrent committed atomic increments returned distinct values and retained
+both increments. That test's own temporary sequence row was removed; all other
+test records were rolled back. All original table counts remained unchanged,
+including the nine departments and 20 category records. Existing migration
+checksums, model definitions and enum values were checked for preservation.

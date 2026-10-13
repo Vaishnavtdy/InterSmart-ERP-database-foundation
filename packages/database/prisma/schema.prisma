@@ -182,6 +182,7 @@ model User {
   revokedSessions             UserSession[]                 @relation("SessionRevoker")
   securityEvents              SecurityEvent[]               @relation("SecurityEventUser")
   resolvedSecurityEvents      SecurityEvent[]               @relation("SecurityEventResolver")
+  updatedSystemSettings       SystemSetting[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -2982,17 +2983,18 @@ enum FileCategory {
 }
 
 model LeaveType {
-  id               String         @id @default(uuid()) @db.Uuid
-  name             String         @db.VarChar(100)
-  code             String         @unique @db.VarChar(64)
-  description      String?        @db.Text
-  isPaid           Boolean        @default(true) @map("is_paid")
-  requiresApproval Boolean        @default(true) @map("requires_approval")
-  isActive         Boolean        @default(true) @map("is_active")
-  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  balances         LeaveBalance[]
-  requests         LeaveRequest[]
+  id                   String         @id @default(uuid()) @db.Uuid
+  name                 String         @db.VarChar(100)
+  code                 String         @unique @db.VarChar(64)
+  description          String?        @db.Text
+  isPaid               Boolean        @default(true) @map("is_paid")
+  requiresApproval     Boolean        @default(true) @map("requires_approval")
+  isActive             Boolean        @default(true) @map("is_active")
+  defaultAllocatedDays Decimal?       @map("default_allocated_days") @db.Decimal(10, 2)
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  balances             LeaveBalance[]
+  requests             LeaveRequest[]
 
   @@index([isActive])
   @@map("leave_types")
@@ -4057,4 +4059,120 @@ model SecurityEvent {
   @@index([resolvedAt, severity, createdAt])
   @@index([resolvedById])
   @@map("security_events")
+}
+
+// Global code-bearing business records only; not configuration/catalog keys.
+enum NumberSequenceEntityType {
+  USER
+  CUSTOMER
+  LEAD
+  PROPOSAL
+  PROJECT
+  TASK
+  PAYMENT_REQUEST
+  PAYMENT
+  QA_TEST_CASE
+  BUG
+  MEETING
+  LEAVE_REQUEST
+  HR_COMPLAINT
+  APPRECIATION
+}
+
+enum SettingValueType {
+  STRING
+  INTEGER
+  DECIMAL
+  BOOLEAN
+  DATE
+  JSON
+}
+
+enum BusinessDayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// Future allocation uses atomic UPDATE ... RETURNING, not read-then-write.
+// No sequence rows/prefixes are seeded without an approved numbering policy.
+model NumberSequence {
+  id            String                   @id @default(uuid()) @db.Uuid
+  entityType    NumberSequenceEntityType @unique @map("entity_type")
+  prefix        String                   @db.VarChar(16)
+  currentValue  BigInt                   @default(0) @map("current_value") @db.BigInt
+  paddingLength Int                      @default(6) @map("padding_length") @db.SmallInt
+  isActive      Boolean                  @default(true) @map("is_active")
+  createdAt     DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive])
+  @@map("number_sequences")
+}
+
+// SQL allowlists each key and its permitted value type/shape.
+// Non-secret business values ONLY; isSensitive is a visibility classification.
+model SystemSetting {
+  id          String           @id @default(uuid()) @db.Uuid
+  key         String           @unique @db.VarChar(128)
+  value       String           @db.Text
+  valueType   SettingValueType @map("value_type")
+  description String?          @db.Text
+  isSensitive Boolean          @default(false) @map("is_sensitive")
+  isEditable  Boolean          @default(true) @map("is_editable")
+  updatedById String?          @map("updated_by_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy   User?            @relation(fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@index([updatedById])
+  @@index([isEditable, isSensitive])
+  @@map("system_settings")
+}
+
+// SQL key allowlist. Global capability metadata, NEVER an authorization grant.
+model FeatureFlag {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique @db.VarChar(128)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  isEnabled   Boolean  @default(false) @map("is_enabled")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isEnabled])
+  @@map("feature_flags")
+}
+
+// Company-local time-of-day; NULL pair means hours have not been configured.
+model BusinessCalendarSetting {
+  id               String            @id @default(uuid()) @db.Uuid
+  dayOfWeek        BusinessDayOfWeek @unique @map("day_of_week")
+  isWorkingDay     Boolean           @map("is_working_day")
+  workingStartTime DateTime?         @map("working_start_time") @db.Time(0)
+  workingEndTime   DateTime?         @map("working_end_time") @db.Time(0)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isWorkingDay])
+  @@map("business_calendar_settings")
+}
+
+model Holiday {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(255)
+  holidayDate DateTime @map("holiday_date") @db.Date
+  description String?  @db.Text
+  isOptional  Boolean  @default(false) @map("is_optional")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([holidayDate, name])
+  @@index([isActive, holidayDate])
+  @@map("holidays")
 }

@@ -1119,3 +1119,53 @@
   permission names documented, not seeded/granted or used to invent new roles.
   Sensitive copied audit content needs its own authorization and source checks.
   No system_settings, APIs/UI/services/authentication/interceptors, AWS or Step 21.
+
+## Step 21 — controlled configuration, not a generic CMS
+
+- Inspect/reuse before normalizing: departments, hierarchical project categories
+  and leave types remain authoritative. Existing 20 category seed records and
+  nine departments are preserved. No second category/source/workstream table.
+- Keep all prior enums. Project quality/platform and lead sources already have
+  sufficient controlled vocabularies; no explicit requirement establishes new
+  runtime classifications. Customer source stays descriptive. Currency retains
+  existing three-letter SQL checks; no new ISO registry/exchange rates. Payment
+  classifications and all stable workflow states are not administrator-created
+  states. Introduce masters only with confirmed business need and safe backfill.
+- Add only nullable, finite nonnegative decimal annual allocation default to
+  existing leave types. NULL is unspecified; no employee balance, automatic
+  accrual or arbitrary entitlement default. Existing leaves/balances untouched.
+- Five new models, three enums, UUID PKs and timezone-aware mutable timestamps.
+  One transactional additive migration; no replacement/drop/old migration edits.
+  One RESTRICT FK for actual setting updater; NULL allows system/bootstrap.
+- Number sequence entity registry covers actual globally unique business codes,
+  including common tasks, leave requests and QA test cases, not authored catalog
+  keys or scoped sprint/module codes. Bigint prevents early overflow; prefix/
+  counter/padding bounds fit existing 32-character code columns. Minimum-width
+  padding must not truncate digits or convert bigint to imprecise JS Number.
+  No invented prefixes, starting counters, allocation services or gapless promise.
+  Future atomic UPDATE RETURNING must share the business-create/audit transaction.
+  Initialize safely from existing codes, never reset/reuse counters, and fail on
+  inactive/missing/exhausted configuration. Unique entity codes remain enforced.
+- Settings use text with a closed SQL key/type/shape registry, not arbitrary JSON
+  or unrestricted keys. Five approved example keys define the supported scope;
+  no policy values are seeded. Six value-type enum values are vocabulary, not
+  permission to invent new keys. No approved DECIMAL/BOOLEAN/JSON keys yet.
+  New keys require migration, explicit type validation and a trusted consumer.
+  Timezone names are DB-validated; leave-year anchors are actual date-only values.
+  Neither settings nor master metadata rewrite historical financial values.
+- is_sensitive is visibility metadata for non-secret business settings only.
+  is_editable is a future writer guard, not database authorization. Strict key/
+  type shapes do not sanitize free text, encrypt data or permit secret storage.
+- Global flags have a closed five-key registry and default disabled on creation;
+  no feature rows/policies are seeded. Flags are not permissions and do not
+  implement capabilities. No per-user/per-role flags or alternative auth.
+- Calendar weekdays require explicit policy; paired optional TIME(0) hours are
+  local wall-clock same-day intervals. Holidays are individual DATE records with
+  exact date/name uniqueness; no recurring/region/attendance/payroll engine.
+  No weekend schedule, holiday dates or timezone silently invented.
+- All future master/configuration changes reuse existing audit_logs and actual
+  authorized actors, with selected non-secret evidence transactionally. No
+  duplicate histories, interceptors or audit system.
+- Canonical RBAC still absent. Ten permission names are documented only, never
+  assigned/seeded or used to invent roles. ProjectRole remains staffing.
+  No frontend/API/controller/service/admin UI, organization_id, AWS or Step 22.

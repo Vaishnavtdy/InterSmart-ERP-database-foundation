@@ -2,6 +2,57 @@
 
 ```mermaid
 erDiagram
+  USERS o|--o{ SYSTEM_SETTINGS : "actual updater or bootstrap"
+  SYSTEM_SETTINGS {
+    uuid id PK
+    string key UK "SQL allowlist"
+    text value "key-specific non-secret representation"
+    SettingValueType value_type
+    text description "nullable"
+    boolean is_sensitive "visibility, NOT secret storage"
+    boolean is_editable
+    uuid updated_by_id FK "nullable bootstrap actor"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  NUMBER_SEQUENCES {
+    uuid id PK
+    NumberSequenceEntityType entity_type UK
+    string prefix
+    bigint current_value "last allocated number"
+    smallint padding_length "minimum width, 1 to 16"
+    boolean is_active
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  FEATURE_FLAGS {
+    uuid id PK
+    string key UK "SQL allowlist"
+    string name
+    text description "nullable"
+    boolean is_enabled "false by default, not permission"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  BUSINESS_CALENDAR_SETTINGS {
+    uuid id PK
+    BusinessDayOfWeek day_of_week UK
+    boolean is_working_day "explicit policy"
+    time working_start_time "nullable local time"
+    time working_end_time "nullable paired local time"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  HOLIDAYS {
+    uuid id PK
+    string name "nonblank trimmed"
+    date holiday_date "unique with name"
+    text description "nullable"
+    boolean is_optional
+    boolean is_active
+    timestamptz created_at
+    timestamptz updated_at
+  }
   USERS o|--o{ AUDIT_LOGS : "optional actual actor"
   USERS ||--o{ USER_ACTIVITY_LOGS : "activity owner"
   USERS o|--o{ AUTHENTICATION_EVENTS : "known or unidentified account"
@@ -351,6 +402,9 @@ erDiagram
     boolean is_paid
     boolean requires_approval
     boolean is_active
+    decimal default_allocated_days "nullable nonnegative default, not balance"
+    timestamptz created_at
+    timestamptz updated_at
   }
   LEAVE_BALANCES {
     uuid id PK

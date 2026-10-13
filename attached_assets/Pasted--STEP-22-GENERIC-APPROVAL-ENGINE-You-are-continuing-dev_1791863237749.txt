@@ -1,0 +1,819 @@
+# STEP 22 — GENERIC APPROVAL ENGINE
+
+You are continuing development of the internal InterSmart ERP database.
+
+## Important Context
+
+This is a single-organization ERP for **InterSmart Technologies**.
+
+Employees authenticate into the system. Customers are external entities and do not authenticate.
+
+Existing database modules already include:
+
+- Users / Departments / Employee Profiles
+- Roles / Permissions
+- Customers / Customer Contacts
+- Leads
+- Proposals
+- Projects
+- Scope / Business Analysis
+- Project Files / Resources
+- Project Budget / Transactions
+- Payments / Payment Requests
+- Common Tasks
+- UI / UX / Development
+- QA / Bugs
+- System Administration / Go-Live
+- HR / Leave / Performance / Complaints / Appreciation
+- Meetings / Notifications
+- Reporting / Dashboards / KPIs
+- Audit / Security / Activity Logs
+- Master Data / System Configuration
+
+Do NOT redesign or recreate any existing module.
+
+---
+
+# Objective
+
+Create a **generic approval engine** that can be reused by different ERP modules.
+
+The approval engine must support use cases such as:
+
+- Payment request approval
+- Out-of-scope approval
+- Budget increase approval
+- Development correction approval
+- Sprint approval
+- Meeting approval
+- Other future business approvals
+
+The approval engine must track the approval workflow without replacing the business status/history of the originating module.
+
+---
+
+# 1. Inspect Existing Schema First
+
+Before modifying anything:
+
+Inspect the existing Prisma schema and identify:
+
+- `users`
+- `roles`
+- `departments`
+- `permissions`
+- `projects`
+- `payment_requests`
+- `tasks`
+- `meetings`
+- existing history/status tables
+- `audit_logs`
+- `notifications`
+
+Also inspect existing enums and naming conventions.
+
+Reuse existing models and enums wherever possible.
+
+Do NOT create duplicate users, roles, departments, projects, notifications, or history systems.
+
+---
+
+# 2. Create `approval_requests`
+
+Create:
+
+```text
+approval_requests
+```
+
+Fields:
+
+```text
+id UUID PK
+
+request_code String UNIQUE
+
+request_type String
+
+entity_type String
+entity_id UUID
+
+requested_by_id UUID FK -> users.id
+
+status ApprovalRequestStatus
+
+priority ApprovalPriority
+
+reason String nullable
+
+due_at DateTime nullable
+
+current_step_order Integer nullable
+
+completed_at DateTime nullable
+cancelled_at DateTime nullable
+
+created_at DateTime
+updated_at DateTime
+```
+
+### Purpose
+
+This represents one approval workflow attached to a business entity.
+
+Examples:
+
+```text
+request_type = PAYMENT_REQUEST
+entity_type = PAYMENT_REQUEST
+entity_id = paymentRequestId
+```
+
+or:
+
+```text
+request_type = OUT_OF_SCOPE
+entity_type = PROJECT
+entity_id = projectId
+```
+
+`entity_type + entity_id` is a generic reference and is NOT a database foreign key.
+
+Authorization must never depend only on `entity_type/entity_id`.
+
+---
+
+# 3. Approval Request Status
+
+Create an enum:
+
+```text
+ApprovalRequestStatus
+```
+
+Values:
+
+```text
+DRAFT
+PENDING
+APPROVED
+REJECTED
+RETURNED
+CANCELLED
+EXPIRED
+```
+
+Do not add unnecessary statuses.
+
+---
+
+# 4. Approval Priority
+
+Create:
+
+```text
+ApprovalPriority
+```
+
+Values:
+
+```text
+LOW
+NORMAL
+HIGH
+URGENT
+```
+
+---
+
+# 5. Create `approval_steps`
+
+Create:
+
+```text
+approval_steps
+```
+
+Fields:
+
+```text
+id UUID PK
+
+approval_request_id UUID FK -> approval_requests.id
+
+step_order Integer
+
+approver_type ApprovalApproverType
+
+approver_user_id UUID nullable FK -> users.id
+
+approver_role_id UUID nullable FK -> roles.id
+
+approver_department_id UUID nullable FK -> departments.id
+
+status ApprovalStepStatus
+
+acted_by_id UUID nullable FK -> users.id
+
+acted_at DateTime nullable
+
+due_at DateTime nullable
+
+comments String nullable
+
+created_at DateTime
+updated_at DateTime
+```
+
+Add an appropriate uniqueness constraint:
+
+```text
+approval_request_id + step_order
+```
+
+---
+
+# 6. Approver Type
+
+Create:
+
+```text
+ApprovalApproverType
+```
+
+Values:
+
+```text
+USER
+ROLE
+DEPARTMENT
+MANAGER
+```
+
+Rules:
+
+### USER
+
+Specific employee must approve.
+
+Use:
+
+```text
+approver_user_id
+```
+
+### ROLE
+
+Any authorized user with the specified role may approve.
+
+Use:
+
+```text
+approver_role_id
+```
+
+### DEPARTMENT
+
+Approval is assigned to an appropriate employee within a department.
+
+Use:
+
+```text
+approver_department_id
+```
+
+### MANAGER
+
+The responsible manager is resolved by application logic.
+
+Do NOT create a separate manager table.
+
+---
+
+# 7. Approval Step Status
+
+Create:
+
+```text
+ApprovalStepStatus
+```
+
+Values:
+
+```text
+PENDING
+APPROVED
+REJECTED
+RETURNED
+SKIPPED
+CANCELLED
+```
+
+---
+
+# 8. Create `approval_history`
+
+Create:
+
+```text
+approval_history
+```
+
+Fields:
+
+```text
+id UUID PK
+
+approval_request_id UUID FK -> approval_requests.id
+
+approval_step_id UUID nullable FK -> approval_steps.id
+
+action ApprovalAction
+
+acted_by_id UUID nullable FK -> users.id
+
+comments String nullable
+
+metadata Json nullable
+
+created_at DateTime
+```
+
+Use JSON only for small contextual metadata.
+
+Do not put core approval data inside JSON.
+
+---
+
+# 9. Approval Action
+
+Create:
+
+```text
+ApprovalAction
+```
+
+Values:
+
+```text
+SUBMITTED
+APPROVED
+REJECTED
+RETURNED
+SKIPPED
+CANCELLED
+REASSIGNED
+```
+
+---
+
+# 10. Approval Request Comments
+
+Only create a separate:
+
+```text
+approval_request_comments
+```
+
+table if there is no reusable generic comment system already available.
+
+If an existing reusable comment model can safely support approvals, reuse it.
+
+If creating the table, use:
+
+```text
+id UUID PK
+
+approval_request_id UUID FK
+
+user_id UUID FK
+
+comment String
+
+created_at DateTime
+updated_at DateTime
+```
+
+Do not create duplicate comment functionality.
+
+---
+
+# 11. Relationships
+
+Add proper Prisma relations.
+
+Expected relationships:
+
+```text
+User
+ ├── requestedApprovalRequests
+ ├── approvalStepsAssigned
+ ├── approvalActions
+ └── approvalHistoryEntries
+
+Role
+ └── approvalSteps
+
+Department
+ └── approvalSteps
+
+ApprovalRequest
+ ├── steps
+ ├── history
+ └── comments (if created)
+
+ApprovalStep
+ ├── approvalRequest
+ ├── approverUser
+ ├── approverRole
+ ├── approverDepartment
+ └── actedBy
+```
+
+Follow the existing project's relation naming conventions.
+
+---
+
+# 12. Approval Workflow Rules
+
+The database should support this workflow:
+
+```text
+DRAFT
+   ↓
+PENDING
+   ↓
+Step 1
+   ↓
+Step 2
+   ↓
+Step N
+   ↓
+APPROVED
+```
+
+Possible outcomes:
+
+```text
+PENDING → REJECTED
+PENDING → RETURNED
+PENDING → CANCELLED
+PENDING → EXPIRED
+```
+
+A returned request may later be resubmitted by application logic.
+
+Do not implement workflow logic inside database triggers.
+
+---
+
+# 13. Sequential Approval
+
+The schema must support sequential approvals.
+
+Example:
+
+```text
+Step 1 → PMO
+Step 2 → Accounts
+Step 3 → Management
+```
+
+Only the currently active step should normally be actionable.
+
+Use:
+
+```text
+step_order
+current_step_order
+```
+
+to support this.
+
+Do not create separate approval tables for PMO, Accounts, Sales, Development, etc.
+
+---
+
+# 14. Parallel Approval Support
+
+The schema should also allow multiple approvers at the same `step_order`.
+
+Example:
+
+```text
+Step 1:
+    User A
+    User B
+
+Step 2:
+    Accounts
+```
+
+Do not introduce a complicated workflow graph or BPMN engine.
+
+The application layer will determine whether all or any approvers are required.
+
+---
+
+# 15. Approval Request Code
+
+Use the existing `number_sequences` configuration created in Step 21.
+
+If the system supports generated approval codes, use:
+
+```text
+APPROVAL_REQUEST
+```
+
+as the sequence key.
+
+Do NOT create a separate sequence table.
+
+If the existing sequence mechanism requires a different naming convention, follow the existing implementation.
+
+---
+
+# 16. Permissions
+
+Extend the existing RBAC system with appropriate permissions, for example:
+
+```text
+approval.read
+approval.create
+approval.act
+approval.manage
+```
+
+Do NOT automatically assign these permissions to roles.
+
+Existing role-management functionality should control assignment.
+
+---
+
+# 17. Notifications
+
+Reuse the existing `notifications` system.
+
+The approval engine should NOT create another notification table.
+
+The application layer can generate notifications when:
+
+```text
+approval submitted
+approval step becomes active
+approval approved
+approval rejected
+approval returned
+approval cancelled
+approval completed
+```
+
+Do not implement notification delivery logic in the Prisma schema.
+
+---
+
+# 18. Audit Logs
+
+Reuse the existing:
+
+```text
+audit_logs
+```
+
+Do NOT create:
+
+```text
+approval_audit_logs
+```
+
+Approval actions should be auditable through:
+
+```text
+approval_history
+```
+
+and the existing global audit system.
+
+---
+
+# 19. Domain Module Rules
+
+IMPORTANT:
+
+The approval engine does NOT replace domain-specific workflow tables.
+
+For example:
+
+Payment:
+
+```text
+payment_request
+payment_request_history
+approval_request
+approval_steps
+approval_history
+```
+
+Project out-of-scope:
+
+```text
+project scope data
+domain history
+approval_request
+approval_steps
+approval_history
+```
+
+The approval engine tracks:
+
+> "Was this request approved?"
+
+The domain module tracks:
+
+> "What happened to the actual business entity?"
+
+Do not merge these responsibilities.
+
+---
+
+# 20. Generic Approval Design Rules
+
+Do NOT create:
+
+```text
+payment_approvals
+project_approvals
+meeting_approvals
+budget_approvals
+sprint_approvals
+```
+
+unless an existing domain-specific table already exists and is authoritative.
+
+The new generic approval engine must be reusable across modules.
+
+---
+
+# 21. Security Rules
+
+Never store:
+
+- passwords
+- password hashes
+- JWT tokens
+- access tokens
+- refresh tokens
+- API keys
+- SSH private keys
+- database passwords
+- SMTP passwords
+- MinIO secrets
+- Git credentials
+- TLS private keys
+
+Approval comments and metadata must not contain credentials or secrets.
+
+---
+
+# 22. Indexes
+
+Add indexes for common lookup patterns.
+
+At minimum consider:
+
+```text
+approval_requests:
+    request_code
+    request_type
+    entity_type + entity_id
+    requested_by_id
+    status
+    due_at
+
+approval_steps:
+    approval_request_id
+    approver_user_id
+    approver_role_id
+    approver_department_id
+    status
+    approval_request_id + step_order
+
+approval_history:
+    approval_request_id
+    approval_step_id
+    acted_by_id
+    created_at
+```
+
+Follow existing indexing conventions.
+
+Do not add unnecessary indexes.
+
+---
+
+# 23. Migration
+
+Create one Prisma migration:
+
+```bash
+npx prisma migrate dev --name add_generic_approval_engine
+```
+
+Do NOT:
+
+- reset the database
+- delete previous migrations
+- recreate existing tables
+- rename unrelated columns
+- modify unrelated modules
+
+---
+
+# 24. Validation
+
+Run:
+
+```bash
+npx prisma validate
+```
+
+Then:
+
+```bash
+npx prisma generate
+```
+
+Run the project's existing:
+
+```text
+TypeScript checks
+lint
+tests
+build
+```
+
+if available.
+
+Fix only issues caused by this step.
+
+Do not refactor unrelated code.
+
+---
+
+# 25. Documentation
+
+Update the project's database/schema documentation with:
+
+- ApprovalRequest
+- ApprovalStep
+- ApprovalHistory
+- approval statuses
+- approver types
+- approval workflow responsibilities
+- relationship with domain-specific status/history tables
+
+Clearly document:
+
+> Approval requests are generic workflow records. They do not replace business-domain state or domain-specific history.
+
+---
+
+# 26. Final Verification
+
+Before finishing, verify:
+
+- Existing migrations remain intact.
+- Existing models still compile.
+- Existing relations still work.
+- No duplicate approval tables were created.
+- No duplicate notification system was created.
+- No duplicate audit system was created.
+- No secrets are stored.
+- Sequential approvals are supported.
+- Multiple approvers at the same step are supported.
+- User/role/department/manager approvers are supported.
+- Domain-specific histories remain authoritative.
+- Existing RBAC remains intact.
+
+## STOP CONDITION
+
+After completing Step 22:
+
+**STOP.**
+
+Do not implement:
+
+- frontend
+- approval APIs
+- approval services
+- approval controllers
+- approval UI
+- workflow designer
+- BPMN
+- notification services
+- email automation
+- queue workers
+- dashboards
+- new business modules
+
+Those will be handled in later steps.

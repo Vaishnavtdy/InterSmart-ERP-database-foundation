@@ -1,0 +1,810 @@
+# STEP 23 — UNIFIED WORK QUEUE / INBOX / ACTION CENTER
+
+You are continuing development of the internal InterSmart ERP database.
+
+## Important Context
+
+This is a single-organization ERP for **InterSmart Technologies**.
+
+Only InterSmart employees authenticate into the ERP.
+
+Customers are external business entities and do not log in.
+
+The database already contains the following major modules:
+
+- Users / Departments / Employee Profiles
+- Roles / Permissions
+- Customers / Customer Contacts
+- Leads / Lead Activities
+- Proposals
+- Projects
+- Scope / Business Analysis
+- Project Files / Resources
+- Project Budget / Transactions
+- Payments / Payment Requests
+- Common Task Engine
+- UI / UX / Development
+- QA / Bugs
+- System Administration / Go-Live
+- HR / Leave / Performance / Complaints / Appreciation
+- Meetings / Notifications
+- Reporting / Dashboards / KPIs
+- Audit / Security / Activity Logs
+- Master Data / System Configuration
+- Generic Approval Engine
+
+Do NOT redesign existing modules.
+
+---
+
+# Objective
+
+Create the database foundation for a **Unified Work Queue / Inbox / Action Center**.
+
+The ERP currently has multiple sources of employee work:
+
+- Tasks
+- Approval requests
+- Payment requests
+- Project actions
+- Bugs
+- Meetings
+- Leave actions
+- HR actions
+- Other future actionable business items
+
+Users should eventually have a single place where they can see:
+
+- Items requiring their action
+- Items assigned to them
+- Pending approvals
+- Upcoming/due work
+- Recently assigned work
+- Important notifications
+- Overdue actions
+
+The work queue must NOT replace the existing task engine, approval engine, notification system, or domain-specific workflows.
+
+---
+
+# 1. Inspect Existing Schema First
+
+Before making changes, inspect:
+
+- `users`
+- `tasks`
+- `notifications`
+- `approval_requests`
+- `approval_steps`
+- `projects`
+- `payment_requests`
+- `meetings`
+- `leave_requests`
+- `bugs`
+- existing action/workflow tables
+- existing status/history tables
+- existing audit tables
+
+Determine whether a reusable assignment/action model already exists.
+
+If an existing model already provides the exact functionality required, reuse it instead of creating a duplicate.
+
+---
+
+# 2. Important Architecture Rule
+
+The Unified Work Queue is an **action index**, not a replacement business entity.
+
+Do NOT move task data into the work queue.
+
+Do NOT move approval data into the work queue.
+
+Do NOT move notification data into the work queue.
+
+Instead:
+
+```text
+Tasks
+   ↓
+             \
+Approvals -----> Unified Work Queue
+                 /
+Meetings -------/
+               /
+Other Actions /
+```
+
+The original module remains the source of truth.
+
+---
+
+# 3. Create `work_queue_items`
+
+Create:
+
+```text
+work_queue_items
+```
+
+Fields:
+
+```text
+id UUID PK
+
+user_id UUID FK -> users.id
+
+item_type WorkQueueItemType
+
+entity_type String
+entity_id UUID
+
+title String
+description String nullable
+
+priority WorkQueuePriority
+
+status WorkQueueItemStatus
+
+due_at DateTime nullable
+
+available_at DateTime nullable
+
+completed_at DateTime nullable
+
+source String nullable
+
+created_at DateTime
+updated_at DateTime
+```
+
+`entity_type + entity_id` is a generic reference.
+
+Do NOT create foreign keys for every possible entity type.
+
+---
+
+# 4. Work Queue Item Type
+
+Create:
+
+```text
+WorkQueueItemType
+```
+
+Use a focused enum such as:
+
+```text
+TASK
+APPROVAL
+MEETING
+PAYMENT
+PROJECT_ACTION
+BUG
+LEAVE
+HR_ACTION
+OTHER
+```
+
+Do not create a separate type for every possible business event.
+
+The originating entity remains the source of truth.
+
+---
+
+# 5. Work Queue Status
+
+Create:
+
+```text
+WorkQueueItemStatus
+```
+
+Values:
+
+```text
+PENDING
+IN_PROGRESS
+COMPLETED
+DISMISSED
+CANCELLED
+```
+
+Important:
+
+This status represents the user's queue item.
+
+It does NOT automatically represent the status of the underlying entity.
+
+For example:
+
+```text
+Work Queue:
+COMPLETED
+
+Underlying Task:
+IN_PROGRESS
+```
+
+should not normally happen for a task that still requires action.
+
+Application logic must determine whether completing a queue item also performs an action on the underlying entity.
+
+---
+
+# 6. Work Queue Priority
+
+Create:
+
+```text
+WorkQueuePriority
+```
+
+Values:
+
+```text
+LOW
+NORMAL
+HIGH
+URGENT
+```
+
+If an existing compatible priority enum already exists, reuse it instead of creating another one.
+
+---
+
+# 7. Assignment Model
+
+A queue item belongs to one employee:
+
+```text
+user_id
+```
+
+Do NOT create:
+
+```text
+team_id
+department_id
+role_id
+```
+
+inside the queue item unless there is a concrete existing requirement.
+
+The queue should contain actionable items for individual employees.
+
+Role/department-based assignment should be resolved by the originating workflow before creating a queue item.
+
+---
+
+# 8. Generic Entity Reference
+
+Use:
+
+```text
+entity_type
+entity_id
+```
+
+to identify the originating record.
+
+Examples:
+
+```text
+entity_type = TASK
+entity_id = task UUID
+```
+
+```text
+entity_type = APPROVAL_REQUEST
+entity_id = approval request UUID
+```
+
+```text
+entity_type = PAYMENT_REQUEST
+entity_id = payment request UUID
+```
+
+```text
+entity_type = BUG
+entity_id = bug UUID
+```
+
+Do NOT use generic references as an authorization mechanism.
+
+Authorization must still use:
+
+- RBAC
+- ownership
+- assignment
+- domain permissions
+- originating module rules
+
+---
+
+# 9. Avoid Duplicating Notifications
+
+The existing:
+
+```text
+notifications
+notification_deliveries
+notification_preferences
+```
+
+system remains responsible for notifications.
+
+Do NOT create:
+
+```text
+queue_notifications
+inbox_notifications
+work_queue_notifications
+```
+
+A notification can contain a reference to the related work item/entity if needed.
+
+But notifications and actionable work are different concepts.
+
+---
+
+# 10. Avoid Duplicating Tasks
+
+The existing common task engine remains the source of truth for tasks.
+
+Do NOT create:
+
+```text
+work_queue_tasks
+inbox_tasks
+employee_tasks
+```
+
+The work queue may contain a queue item referencing an existing task.
+
+Example:
+
+```text
+work_queue_items
+    item_type = TASK
+    entity_type = TASK
+    entity_id = task.id
+```
+
+---
+
+# 11. Approval Integration
+
+Use the existing approval engine.
+
+An approval that requires an employee's action can produce:
+
+```text
+work_queue_items
+    item_type = APPROVAL
+    entity_type = APPROVAL_REQUEST
+    entity_id = approval_request.id
+```
+
+The approval engine remains responsible for:
+
+- approval state
+- approval steps
+- approvers
+- approval history
+
+The queue only exposes the actionable item.
+
+---
+
+# 12. Meeting Integration
+
+Meetings may appear in the queue when an employee has an actionable responsibility.
+
+Examples:
+
+- Meeting requiring preparation
+- Meeting minutes pending
+- Meeting approval required
+- Assigned meeting action
+
+Do not create a second meeting workflow.
+
+Reuse the existing meeting models.
+
+---
+
+# 13. Payment Integration
+
+Payment-related queue items may include:
+
+- Payment request requiring action
+- Payment verification
+- Payment approval
+
+Do not create a new payment workflow.
+
+Reuse:
+
+```text
+payment_requests
+payments
+payment history
+approval_requests
+```
+
+---
+
+# 14. HR Integration
+
+The queue may later represent:
+
+- Leave approval
+- HR complaint action
+- Performance review action
+- HR task
+
+Do not create separate HR inbox tables.
+
+Reuse the existing HR models.
+
+---
+
+# 15. Project Actions
+
+If the existing project module already has explicit project action records, reference them.
+
+If no project action entity exists, do NOT create a large new project action engine in this step.
+
+Use existing tasks or future domain-specific models instead.
+
+Do not introduce unnecessary duplication.
+
+---
+
+# 16. Due Dates
+
+The queue supports:
+
+```text
+due_at
+```
+
+This is used to identify:
+
+- overdue
+- due today
+- upcoming
+- no due date
+
+The underlying entity remains responsible for its own authoritative date.
+
+When possible, `due_at` should be synchronized by application logic from the source entity.
+
+Do not create database triggers.
+
+---
+
+# 17. Availability
+
+Use:
+
+```text
+available_at
+```
+
+to support items that should not become actionable until a particular time.
+
+Example:
+
+```text
+available_at = tomorrow 09:00
+```
+
+Before `available_at`, the item should not appear as an active actionable item.
+
+---
+
+# 18. Completion Rules
+
+`completed_at` should be populated when:
+
+```text
+status = COMPLETED
+```
+
+For:
+
+```text
+DISMISSED
+CANCELLED
+```
+
+the application may use appropriate timestamps/history.
+
+Do not create a separate completion table unless an existing audit/history pattern requires it.
+
+---
+
+# 19. History
+
+Before creating a queue history table, inspect whether the existing generic activity/audit system can capture queue actions.
+
+Prefer:
+
+```text
+audit_logs
+user_activity_logs
+```
+
+for historical tracking.
+
+Only create:
+
+```text
+work_queue_item_history
+```
+
+if the existing audit/activity system cannot adequately represent:
+
+- assignment
+- completion
+- dismissal
+- cancellation
+- priority changes
+- due-date changes
+
+If created, keep it minimal.
+
+Possible fields:
+
+```text
+id UUID PK
+work_queue_item_id UUID FK
+action String
+performed_by_id UUID FK -> users.id
+metadata Json nullable
+created_at DateTime
+```
+
+Do not duplicate the global audit system.
+
+---
+
+# 20. Queue Uniqueness / Duplicate Prevention
+
+Prevent accidental duplicate actionable queue items where practical.
+
+Consider a uniqueness strategy based on:
+
+```text
+user_id
+item_type
+entity_type
+entity_id
+```
+
+However, do NOT blindly create a permanent unique constraint if the same underlying entity can legitimately generate multiple queue actions for the same user over time.
+
+Inspect existing workflows first.
+
+If repeated queue items are legitimate, use application-level idempotency instead.
+
+Choose the safest design based on the existing schema.
+
+---
+
+# 21. Indexes
+
+Add indexes for common queries:
+
+```text
+user_id
+status
+priority
+due_at
+available_at
+item_type
+entity_type + entity_id
+user_id + status
+user_id + due_at
+```
+
+Do not over-index.
+
+Follow existing database conventions.
+
+---
+
+# 22. RBAC
+
+Do not create unnecessary queue-specific permissions if normal employee access is already covered by existing RBAC.
+
+If permissions are needed, consider:
+
+```text
+work_queue.read
+work_queue.manage
+```
+
+Do NOT automatically grant them to roles.
+
+Employees should normally be able to read their own queue.
+
+Administrative access can be controlled through existing RBAC.
+
+---
+
+# 23. Security
+
+A user must not be able to see another employee's queue items merely by changing a UUID.
+
+The future service/API layer must enforce:
+
+```text
+currentUser.id == work_queue_item.user_id
+```
+
+unless the current user has an appropriate administrative permission.
+
+The database design must support this ownership model.
+
+Do not expose sensitive underlying entity data directly through queue records.
+
+---
+
+# 24. Dashboard Relationship
+
+Do not create separate dashboard counters.
+
+Future dashboards can derive metrics from:
+
+```text
+work_queue_items
+```
+
+and the original source tables.
+
+Examples:
+
+```text
+Pending approvals
+Overdue tasks
+Today's actions
+Urgent work
+Completed actions
+```
+
+No duplicated KPI tables should be created.
+
+---
+
+# 25. Search / Filtering Support
+
+The schema should support future filtering by:
+
+```text
+status
+priority
+item_type
+due_at
+available_at
+created_at
+source
+```
+
+Do not add a full-text search engine or search index at this stage.
+
+---
+
+# 26. Migration
+
+Create one Prisma migration:
+
+```bash
+npx prisma migrate dev --name add_unified_work_queue
+```
+
+Do NOT:
+
+- reset the database
+- delete migrations
+- recreate existing tables
+- rename unrelated columns
+- modify unrelated modules
+
+---
+
+# 27. Validation
+
+Run:
+
+```bash
+npx prisma validate
+```
+
+Then:
+
+```bash
+npx prisma generate
+```
+
+Run existing:
+
+```text
+TypeScript checks
+lint
+tests
+build
+```
+
+if available.
+
+Fix only issues introduced by this step.
+
+---
+
+# 28. Documentation
+
+Update database documentation with:
+
+- WorkQueueItem
+- queue ownership
+- queue item types
+- queue status
+- queue priority
+- generic entity references
+- relationship with Tasks
+- relationship with Approvals
+- relationship with Notifications
+- relationship with Meetings
+- relationship with Payments
+- relationship with HR
+- authorization rules
+
+Clearly document:
+
+> The Unified Work Queue is an actionable index for employees. It is not the source of truth for the underlying business entity.
+
+---
+
+# 29. Final Verification
+
+Before completing Step 23, verify:
+
+- Existing task engine remains unchanged.
+- Existing approval engine remains unchanged.
+- Existing notification system remains unchanged.
+- Existing meeting system remains unchanged.
+- Existing payment system remains unchanged.
+- Existing HR system remains unchanged.
+- Existing audit system remains unchanged.
+- No duplicate inbox/task/notification systems were created.
+- Queue ownership is tied to users.
+- Generic entity references are supported.
+- Due dates and priorities are supported.
+- Multiple business modules can feed the queue.
+- RBAC remains intact.
+- No secrets are stored.
+- Existing migrations remain intact.
+
+## STOP CONDITION
+
+After completing Step 23:
+
+**STOP.**
+
+Do not implement:
+
+- frontend inbox UI
+- queue APIs
+- queue services
+- notification workers
+- WebSocket updates
+- email automation
+- dashboard widgets
+- workflow automation
+- AI prioritization
+- cron jobs
+- background workers
+
+Those will be handled in later steps.

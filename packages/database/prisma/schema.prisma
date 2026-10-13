@@ -35,6 +35,7 @@ model Department {
   projectTeams      ProjectTeam[]
   budgetAllocations BudgetAllocation[]
   kpiAssignments    KpiAssignment[]
+  approvalSteps     ApprovalStep[]
 
   @@map("departments")
 }
@@ -183,6 +184,12 @@ model User {
   securityEvents              SecurityEvent[]               @relation("SecurityEventUser")
   resolvedSecurityEvents      SecurityEvent[]               @relation("SecurityEventResolver")
   updatedSystemSettings       SystemSetting[]
+  userRoles                   UserRole[]
+  requestedApprovalRequests   ApprovalRequest[]
+  approvalStepsAssigned       ApprovalStep[]                @relation("ApprovalStepAssignee")
+  approvalActions             ApprovalStep[]                @relation("ApprovalStepActor")
+  approvalHistoryEntries      ApprovalHistory[]
+  approvalRequestComments     ApprovalRequestComment[]
 
   @@index([departmentId, status])
   @@index([managerId])
@@ -4077,6 +4084,7 @@ enum NumberSequenceEntityType {
   LEAVE_REQUEST
   HR_COMPLAINT
   APPRECIATION
+  APPROVAL_REQUEST
 }
 
 enum SettingValueType {
@@ -4175,4 +4183,209 @@ model Holiday {
   @@unique([holidayDate, name])
   @@index([isActive, holidayDate])
   @@map("holidays")
+}
+
+// User-approved minimal RBAC prerequisite. No roles or grants are seeded.
+// ProjectRole remains operational staffing, never a permission role.
+model Role {
+  id            String           @id @default(uuid()) @db.Uuid
+  code          String           @unique @db.VarChar(64)
+  name          String           @db.VarChar(100)
+  description   String?          @db.Text
+  isActive      Boolean          @default(true) @map("is_active")
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  userRoles     UserRole[]
+  permissions   RolePermission[]
+  approvalSteps ApprovalStep[]
+
+  @@index([isActive])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique @db.VarChar(128)
+  name        String           @db.VarChar(100)
+  description String?          @db.Text
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid()) @db.Uuid
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+enum ApprovalRequestStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED
+  CANCELLED
+  EXPIRED
+}
+
+enum ApprovalPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ApprovalApproverType {
+  USER
+  ROLE
+  DEPARTMENT
+  MANAGER
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED
+  SKIPPED
+  CANCELLED
+}
+
+enum ApprovalAction {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  RETURNED
+  SKIPPED
+  CANCELLED
+  REASSIGNED
+}
+
+// Generic references are not FKs, existence guarantees or authorization.
+// Approval state NEVER replaces the origin's business state/history.
+model ApprovalRequest {
+  id               String                   @id @default(uuid()) @db.Uuid
+  requestCode      String                   @unique @map("request_code") @db.VarChar(32)
+  requestType      String                   @map("request_type") @db.VarChar(64)
+  entityType       String                   @map("entity_type") @db.VarChar(64)
+  entityId         String                   @map("entity_id") @db.Uuid
+  requestedById    String                   @map("requested_by_id") @db.Uuid
+  status           ApprovalRequestStatus    @default(DRAFT)
+  priority         ApprovalPriority         @default(NORMAL)
+  reason           String?                  @db.Text
+  dueAt            DateTime?                @map("due_at") @db.Timestamptz(6)
+  currentStepOrder Int?                     @map("current_step_order")
+  completedAt      DateTime?                @map("completed_at") @db.Timestamptz(6)
+  cancelledAt      DateTime?                @map("cancelled_at") @db.Timestamptz(6)
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  requestedBy      User                     @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  steps            ApprovalStep[]
+  history          ApprovalHistory[]
+  comments         ApprovalRequestComment[]
+
+  @@index([requestType])
+  @@index([entityType, entityId])
+  @@index([requestedById, createdAt])
+  @@index([status, dueAt])
+  @@index([dueAt])
+  @@map("approval_requests")
+}
+
+model ApprovalStep {
+  id                   String               @id @default(uuid()) @db.Uuid
+  approvalRequestId    String               @map("approval_request_id") @db.Uuid
+  stepOrder            Int                  @map("step_order")
+  approverType         ApprovalApproverType @map("approver_type")
+  approverUserId       String?              @map("approver_user_id") @db.Uuid
+  approverRoleId       String?              @map("approver_role_id") @db.Uuid
+  approverDepartmentId String?              @map("approver_department_id") @db.Uuid
+  status               ApprovalStepStatus   @default(PENDING)
+  actedById            String?              @map("acted_by_id") @db.Uuid
+  actedAt              DateTime?            @map("acted_at") @db.Timestamptz(6)
+  dueAt                DateTime?            @map("due_at") @db.Timestamptz(6)
+  comments             String?              @db.Text
+  createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  approvalRequest      ApprovalRequest      @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  approverUser         User?                @relation("ApprovalStepAssignee", fields: [approverUserId], references: [id], onDelete: Restrict)
+  approverRole         Role?                @relation(fields: [approverRoleId], references: [id], onDelete: Restrict)
+  approverDepartment   Department?          @relation(fields: [approverDepartmentId], references: [id], onDelete: Restrict)
+  actedBy              User?                @relation("ApprovalStepActor", fields: [actedById], references: [id], onDelete: Restrict)
+  history              ApprovalHistory[]
+
+  // Same-order rows are parallel slots. SQL partial unique indexes deduplicate
+  // each target (and the manager slot) within a request/order.
+  // This composite target key keeps history inside its own request.
+  @@unique([approvalRequestId, id])
+  @@index([approvalRequestId, stepOrder])
+  @@index([approverUserId, status])
+  @@index([approverRoleId, status])
+  @@index([approverDepartmentId, status])
+  @@index([status, dueAt])
+  @@index([actedById])
+  @@map("approval_steps")
+}
+
+// Append-only evidence; no updatedAt. Metadata is a <=8 KiB object only.
+// Sanitize nested metadata AND free text; never serialize bodies or snapshots.
+model ApprovalHistory {
+  id                String          @id @default(uuid()) @db.Uuid
+  approvalRequestId String          @map("approval_request_id") @db.Uuid
+  approvalStepId    String?         @map("approval_step_id") @db.Uuid
+  action            ApprovalAction
+  actedById         String?         @map("acted_by_id") @db.Uuid
+  comments          String?         @db.Text
+  metadata          Json?           @db.JsonB
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  approvalRequest   ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  approvalStep      ApprovalStep?   @relation(fields: [approvalRequestId, approvalStepId], references: [approvalRequestId, id], onDelete: Restrict, onUpdate: NoAction)
+  actedBy           User?           @relation(fields: [actedById], references: [id], onDelete: Restrict)
+
+  @@index([approvalRequestId, createdAt])
+  @@index([approvalStepId])
+  @@index([actedById])
+  @@index([createdAt])
+  @@map("approval_history")
+}
+
+// Existing comments are domain-bound, not a reusable generic comment system.
+model ApprovalRequestComment {
+  id                String          @id @default(uuid()) @db.Uuid
+  approvalRequestId String          @map("approval_request_id") @db.Uuid
+  userId            String          @map("user_id") @db.Uuid
+  comment           String          @db.Text
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  approvalRequest   ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  user              User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([approvalRequestId, createdAt])
+  @@index([userId])
+  @@map("approval_request_comments")
 }

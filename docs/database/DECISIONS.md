@@ -1169,3 +1169,48 @@
 - Canonical RBAC still absent. Ten permission names are documented only, never
   assigned/seeded or used to invent roles. ProjectRole remains staffing.
   No frontend/API/controller/service/admin UI, organization_id, AWS or Step 22.
+
+## Step 22 — generic approvals with explicit RBAC prerequisite consent
+
+- The actual schema lacked RBAC. The user selected “Add minimal RBAC database
+  tables”, authorizing roles/permissions/user_roles/role_permissions as the
+  prerequisite rather than a second auth system or a non-FK role placeholder.
+  No auth middleware/services/UI or automatic grants. Seed only four approval
+  permission definitions; no roles, memberships or permissions assigned.
+- Four approval tables: requests, steps, append-only history and discussion.
+  Existing comments are bound to business modules, not a generic comment engine,
+  so approval_request_comments is necessary without rewriting unrelated comments.
+- Preserve requested five enum vocabularies exactly. Existing workflow enums
+  remain intact. Extend the existing sequence enum with APPROVAL_REQUEST only;
+  no generated-code service, new sequence table or invented prefix/counter.
+- Unique request/order would block required parallel approvals. Replace it with
+  a lookup index and partial per-target uniqueness, including one unresolved
+  MANAGER slot per group. Multiple distinct targets share an order. Unique
+  request/id exists only as the target key for same-request history references.
+- USER/ROLE/DEPARTMENT target shape is exclusive; MANAGER has no target FK.
+  Assignment target is not actual actor or proof of authority. Validate role
+  activity, membership, permission, department and responsible-manager policy
+  in future authorized writers. No automatic manager inference or self-approval
+  policy. No user-specific/department-specific duplicate approval tables.
+- Positive current_step_order addresses a group, not a unique step row. Future
+  services validate it and define any/all behavior, serialize decisions and
+  coordinate status/history/audit and intended domain transitions in one
+  idempotent transaction. No workflow logic in SQL triggers.
+- Append-only history protection only: no advances, notifications or automatic
+  domain mutations. Step history composite FK prevents cross-request attribution.
+  Nullable actor supports trusted system actions, not anonymous human decisions.
+- History JSONB is a <=8 KiB nullable object for selective safe context only.
+  Core fields remain typed/relational; root/size checks are not redaction.
+  Sanitize every free-text field and nested metadata; never copy secrets,
+  authenticating credentials, full snapshots or raw request payloads.
+- Approval requests are generic workflow records, not business state. Domain
+  histories remain authoritative. Entity references are not FKs, existence
+  guarantees or access grants. Reauthorize source-derived content before
+  discussion/history/notification/audit reads.
+- Exact action vocabulary has no expiry action despite EXPIRED request state.
+  Define the future expiry-evidence policy; do not silently invent or mislabel it.
+  Returned/resubmitted requests preserve old evidence; no complex graph/BPMN.
+- Single additive transactional migration. Existing records/migrations preserved.
+  UUID keys, timezone-aware timestamps, RESTRICT FKs and targeted indexes.
+  No frontend, APIs/controllers/services, workers, notification duplication,
+  dashboards, auth enforcement, business modules, AWS or following step.

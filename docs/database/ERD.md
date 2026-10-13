@@ -2,6 +2,103 @@
 
 ```mermaid
 erDiagram
+  USERS ||--o{ USER_ROLES : "explicit membership, no automatic grants"
+  ROLES ||--o{ USER_ROLES : "membership role"
+  ROLES ||--o{ ROLE_PERMISSIONS : "explicit grants"
+  PERMISSIONS ||--o{ ROLE_PERMISSIONS : "permission definition"
+  USERS ||--o{ APPROVAL_REQUESTS : "requester"
+  APPROVAL_REQUESTS ||--o{ APPROVAL_STEPS : "sequential or parallel slots"
+  USERS o|--o{ APPROVAL_STEPS : "specific user target"
+  ROLES o|--o{ APPROVAL_STEPS : "role target"
+  DEPARTMENTS o|--o{ APPROVAL_STEPS : "department target"
+  USERS o|--o{ APPROVAL_STEPS : "actual actor"
+  APPROVAL_REQUESTS ||--o{ APPROVAL_HISTORY : "append-only evidence"
+  APPROVAL_STEPS o|--o{ APPROVAL_HISTORY : "optional step in same request"
+  USERS o|--o{ APPROVAL_HISTORY : "actual actor or trusted system action"
+  APPROVAL_REQUESTS ||--o{ APPROVAL_REQUEST_COMMENTS : "discussion"
+  USERS ||--o{ APPROVAL_REQUEST_COMMENTS : "comment author"
+  ROLES {
+    uuid id PK
+    string code UK
+    string name
+    text description "nullable"
+    boolean is_active
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  PERMISSIONS {
+    uuid id PK
+    string code UK
+    string name
+    text description "nullable"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  USER_ROLES {
+    uuid id PK
+    uuid user_id FK "unique with role_id"
+    uuid role_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  ROLE_PERMISSIONS {
+    uuid id PK
+    uuid role_id FK "unique with permission_id"
+    uuid permission_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  APPROVAL_REQUESTS {
+    uuid id PK
+    string request_code UK
+    string request_type
+    string entity_type "generic reference, NOT authorization"
+    uuid entity_id "NOT a business FK"
+    uuid requested_by_id FK
+    ApprovalRequestStatus status
+    ApprovalPriority priority
+    text reason "nullable"
+    timestamptz due_at "nullable"
+    int current_step_order "nullable positive group order"
+    timestamptz completed_at "nullable"
+    timestamptz cancelled_at "nullable"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  APPROVAL_STEPS {
+    uuid id PK
+    uuid approval_request_id FK
+    int step_order "positive, same order allows parallel targets"
+    ApprovalApproverType approver_type
+    uuid approver_user_id FK "USER only"
+    uuid approver_role_id FK "ROLE only"
+    uuid approver_department_id FK "DEPARTMENT only"
+    ApprovalStepStatus status
+    uuid acted_by_id FK "nullable actual actor, not target"
+    timestamptz acted_at "nullable, required if actor set"
+    timestamptz due_at "nullable"
+    text comments "nullable"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  APPROVAL_HISTORY {
+    uuid id PK
+    uuid approval_request_id FK
+    uuid approval_step_id FK "nullable composite same-request FK"
+    ApprovalAction action
+    uuid acted_by_id FK "nullable trusted system action"
+    text comments "nullable"
+    jsonb metadata "nullable object, at most 8 KiB"
+    timestamptz created_at
+  }
+  APPROVAL_REQUEST_COMMENTS {
+    uuid id PK
+    uuid approval_request_id FK
+    uuid user_id FK
+    text comment "nonblank sanitized discussion"
+    timestamptz created_at
+    timestamptz updated_at
+  }
   USERS o|--o{ SYSTEM_SETTINGS : "actual updater or bootstrap"
   SYSTEM_SETTINGS {
     uuid id PK

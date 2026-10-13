@@ -9,3 +9,4 @@
 - [Meeting/notification writes](meeting-notification-write-contracts.md) — coordinate meeting history; reauthorize copied notification content; delivery is not read acknowledgement.
 - [Reporting contracts](reporting-contracts.md) — metadata/targets are not actuals; authorize before aggregation and define target/default scope policies explicitly.
 - [Audit/security writes](audit-security-write-contracts.md) — coordinate successful changes and evidence; preserve failed-attempt events; history is not auth enforcement.
+- [Approval writes](approval-write-contracts.md) — define parallel-group/actor policy explicitly; preserve resubmission evidence and domain-state independence.

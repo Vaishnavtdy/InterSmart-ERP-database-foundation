@@ -13,7 +13,7 @@ single-organization PostgreSQL database.
 - `pnpm --filter @workspace/database run db:generate` — generate the Prisma client
 - `pnpm --filter @workspace/database run db:migrate:dev --name <change-name> --create-only` — create a development migration for SQL review
 - `pnpm --filter @workspace/database run db:migrate:deploy` — apply committed migrations
-- `pnpm --filter @workspace/database run db:seed` — seed the nine departments without creating accounts
+- `pnpm --filter @workspace/database run db:seed` — preserve/seed departments, project categories and four approval permission definitions; no accounts, roles or grants
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
@@ -108,6 +108,13 @@ outside this ERP; configuration flags do not configure those services.
 
 ## Gotchas
 
+- Generic approvals do not replace originating module status/history. Parallel
+  approvers share step_order; future writers must define any/all and active-group
+  policy, authorize actual actors and coordinate state/history/audit atomically.
+- Minimal RBAC tables were explicitly approved as an approval prerequisite.
+  They are authorization data, not implemented auth enforcement. ProjectRole
+  is staffing, not RBAC; permission definitions are not automatic grants.
+
 - Configuration is controlled, not a generic key/value CMS. Setting keys/types
   and global flag keys have SQL allowlists; new keys require reviewed schema
   changes and consumers. No credential storage, automatic code generator,
@@ -135,7 +142,8 @@ outside this ERP; configuration flags do not configure those services.
 
 - HR leave/performance/complaints/appreciation are database foundations only.
   Sensitive HR records do not inherit project/customer access. Existing auth
-  role/permission tables are absent; do not invent or seed an authorization system.
+  enforcement is not implemented; reuse the approved minimal RBAC foundation,
+  rather than inventing another authorization system or granting access implicitly.
 - HR standalone tasks/files reuse the common tables. HR files stay outside
   ProjectResource sharing; physical contents remain in MinIO. Uploader does not
   identify the employee subject. HR decision/status/balance coordination needs

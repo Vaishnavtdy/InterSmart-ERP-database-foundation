@@ -1,6 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { DepartmentCode, PrismaClient } from "../generated/client/client.js";
 import { seedProjectCategories } from "./project-categories.js";
+import { seedApprovalPermissions } from "./approval-permissions.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -34,6 +35,7 @@ try {
       });
     }
     await seedProjectCategories(tx);
+    await seedApprovalPermissions(tx);
   }, { timeout: 30_000 });
 } finally {
   await prisma.$disconnect();
